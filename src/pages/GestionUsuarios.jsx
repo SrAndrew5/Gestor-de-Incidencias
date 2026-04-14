@@ -1,6 +1,8 @@
 import { useState, useRef } from "react";
-import { mockData, BIBLIOTECAS } from "../services/api";
-import { PageHeader, Btn, Modal, Input, Select } from "../components/UI";
+import { BIBLIOTECAS } from "../services/api";
+import { PageHeader, Btn, Modal, Input, Select, EmptyState } from "../components/UI";
+import { useData } from "../context/DataContext";
+import { useToast } from "../context/ToastContext";
 
 const rolColor = {
   ADMIN:   "bg-red-400/15 text-red-400 border border-red-400/30",
@@ -20,27 +22,44 @@ function parseUserCSV(text) {
     const obj = {};
     headers.forEach((h, idx) => { obj[h] = cols[idx] || ""; });
     return {
-      id:          Date.now() + i,
-      nombre:      obj.nombre || obj.name || `Usuario ${i + 1}`,
-      email:       obj.email || "",
-      rol:         (obj.rol || obj.role || "USUARIO").toUpperCase(),
-      departamento:obj.departamento || obj.department || "",
-      biblioteca:  obj.biblioteca || BIBLIOTECAS[0],
-      activo:      obj.activo !== "No" && obj.activo !== "false" && obj.activo !== "0",
+      id:           Date.now() + i,
+      nombre:       obj.nombre || obj.name || `Usuario ${i + 1}`,
+      email:        obj.email || "",
+      rol:          (obj.rol || obj.role || "USUARIO").toUpperCase(),
+      departamento: obj.departamento || obj.department || "",
+      biblioteca:   obj.biblioteca || BIBLIOTECAS[0],
+      activo:       obj.activo !== "No" && obj.activo !== "false" && obj.activo !== "0",
     };
   });
 }
 
 export default function GestionUsuarios() {
-  const [usuarios, setUsuarios]  = useState(mockData.usuarios);
-  const [search, setSearch]      = useState("");
-  const [rolFiltro, setRolF]     = useState("TODOS");
-  const [biblioF, setBiblioF]    = useState("TODAS");
-  const [showModal, setShowModal]= useState(false);
-  const [editando, setEditando]  = useState(null);
-  const [form, setForm]          = useState(EMPTY);
+  // ── Datos desde DataContext (persisten al navegar) ─────────────
+  const { usuarios, guardarUsuario, borrarUsuario, toggleUsuarioActivo, importarUsuarios } = useData();
+  const { addToast } = useToast();
+
+  const [search, setSearch]       = useState("");
+  const [rolFiltro, setRolF]      = useState("TODOS");
+  const [biblioF, setBiblioF]     = useState("TODAS");
+  const [showModal, setShowModal] = useState(false);
+  const [editando, setEditando]   = useState(null);
+  const [form, setForm]           = useState(EMPTY);
+  const [errors, setErrors]       = useState({});
   const [importError, setImportError] = useState("");
+  const [itemToDelete, setItemToDelete] = useState(null); 
+  const [isSaving, setIsSaving] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
   const fileRef = useRef();
+
+  const validate = () => {
+    const e = {};
+    if (!form.nombre.trim()) e.nombre = "El nombre es obligatorio";
+    if (!form.email.trim()) e.email = "El email es obligatorio";
+    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Formato de email incorrecto";
+    if (!form.biblioteca) e.biblioteca = "Selecciona una sede";
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  };
 
   const filtered = usuarios.filter(u => {
     const q = search.toLowerCase();
@@ -50,17 +69,32 @@ export default function GestionUsuarios() {
     return matchSearch && matchRol && matchBiblio;
   });
 
-  const openEdit = (u) => { setEditando(u); setForm({ ...u }); setShowModal(true); };
-  const openNew  = () => { setEditando(null); setForm(EMPTY); setShowModal(true); };
+  const openEdit = (u) => { setEditando(u); setForm({ ...u }); setErrors({}); setShowModal(true); };
+  const openNew  = () => { setEditando(null); setForm(EMPTY); setErrors({}); setShowModal(true); };
 
   const handleSave = () => {
-    if (editando) setUsuarios(prev => prev.map(u => u.id === editando.id ? { ...u, ...form } : u));
-    else setUsuarios(prev => [...prev, { ...form, id: Date.now() }]);
-    setShowModal(false);
+    if (!validate()) return;
+    setIsSaving(true);
+    setErrors({});
+    setTimeout(async () => {
+      await guardarUsuario({ ...form, id: editando ? editando.id : null });
+      addToast(editando ? `Usuario "${form.nombre}" actualizado` : `Usuario "${form.nombre}" creado`, "success");
+      setShowModal(false);
+      setIsSaving(false);
+    }, 600);
   };
 
-  const toggleActivo = (id) => setUsuarios(prev => prev.map(u => u.id === id ? { ...u, activo: !u.activo } : u));
-  const handleDelete = (id) => { if (confirm("¿Eliminar este usuario?")) setUsuarios(prev => prev.filter(u => u.id !== id)); };
+  const toggleActivo = (id) => {
+    toggleUsuarioActivo(id);
+  };
+
+  // ── Borrado con Modal (sustituye confirm() nativo) ─────────────
+  const handleDelete = (u) => setItemToDelete(u);
+  const executeDelete = async () => {
+    await borrarUsuario(itemToDelete.id);
+    addToast(`Usuario "${itemToDelete.nombre}" eliminado`, "warning");
+    setItemToDelete(null);
+  };
 
   const exportCSV = () => {
     const headers = ["Nombre", "Email", "Rol", "Departamento", "Biblioteca", "Activo"];
@@ -71,35 +105,50 @@ export default function GestionUsuarios() {
     const a = document.createElement("a");
     a.href = url; a.download = "usuarios.csv"; a.click();
     URL.revokeObjectURL(url);
+    addToast("Exportación de usuarios completada", "success");
   };
 
   const handleImport = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     setImportError("");
+    setIsImporting(true);
     const reader = new FileReader();
     reader.onload = (ev) => {
-      try {
-        const parsed = parseUserCSV(ev.target.result);
-        if (!parsed.length) { setImportError("No se encontraron datos."); return; }
-        setUsuarios(prev => [...parsed, ...prev]);
-        alert(`✓ ${parsed.length} usuarios importados.`);
-      } catch (err) { setImportError("Error: " + err.message); }
+      setTimeout(async () => {
+        try {
+          const parsed = parseUserCSV(ev.target.result);
+          if (!parsed.length) {
+            setImportError("No se encontraron datos.");
+            addToast("Error: fichero sin datos válidos", "error");
+            setIsImporting(false);
+            return;
+          }
+          await importarUsuarios(parsed);
+          addToast(`${parsed.length} usuarios importados correctamente`, "success");
+        } catch (err) {
+          setImportError("Error: " + err.message);
+          addToast("Error procesando el archivo CSV", "error");
+        }
+        setIsImporting(false);
+      }, 800);
     };
     reader.readAsText(file, "UTF-8");
     e.target.value = "";
   };
 
   return (
-    <div className="p-8" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+    <div className="p-8">
       <PageHeader
         title="Gestión de Usuarios"
         subtitle={`${usuarios.length} usuarios · ${usuarios.filter(u => u.activo).length} activos`}
         actions={
           <>
             <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleImport} />
-            <Btn variant="secondary" onClick={() => fileRef.current.click()} size="sm">⬆ Importar CSV</Btn>
-            <Btn variant="secondary" onClick={exportCSV} size="sm">⬇ Exportar</Btn>
+            <Btn variant="secondary" onClick={() => fileRef.current.click()} size="sm" loading={isImporting}>
+              {isImporting ? "Importando..." : "Importar CSV"}
+            </Btn>
+            <Btn variant="secondary" onClick={exportCSV} size="sm">Exportar</Btn>
             <Btn onClick={openNew}>+ Nuevo usuario</Btn>
           </>
         }
@@ -147,46 +196,64 @@ export default function GestionUsuarios() {
         </div>
       </div>
 
-      {/* Table */}
+      {/* Tabla — sin scroll horizontal, columnas fijas */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm table-fixed">
+          <colgroup>
+            <col style={{ width: "auto" }} />     {/* USUARIO + DEPTO */}
+            <col style={{ width: "13rem" }} />    {/* EMAIL */}
+            <col style={{ width: "7rem" }} />     {/* ROL */}
+            <col style={{ width: "12rem" }} />    {/* BIBLIOTECA */}
+            <col style={{ width: "7rem" }} />     {/* ESTADO */}
+            <col style={{ width: "5.5rem" }} />   {/* ACCIONES */}
+          </colgroup>
           <thead>
             <tr className="border-b border-zinc-800">
-              {["USUARIO", "EMAIL", "ROL", "DEPARTAMENTO", "BIBLIOTECA", "ESTADO", ""].map(h => (
-                <th key={h} className="text-left text-zinc-500 text-xs tracking-wide px-4 py-3 font-normal">{h}</th>
+              {["USUARIO", "EMAIL", "ROL", "BIBLIOTECA", "ESTADO", ""].map(h => (
+                <th key={h} className="text-left text-zinc-500 text-xs tracking-wide px-3 py-2.5 font-normal">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60">
-            {filtered.length === 0 && <tr><td colSpan={7} className="text-center text-zinc-600 py-12 text-sm">Sin usuarios</td></tr>}
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={6}>
+                  <EmptyState title="Sin usuarios" icon="👥" message="No hay usuarios registrados con esos criterios de búsqueda." />
+                </td>
+              </tr>
+            )}
             {filtered.map(u => (
               <tr key={u.id} className={`hover:bg-zinc-800/30 transition-colors ${!u.activo ? "opacity-50" : ""}`}>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-300 text-xs font-bold flex-shrink-0">
+                {/* USUARIO + DEPARTAMENTO fusionados */}
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-300 text-xs font-bold flex-shrink-0">
                       {u.nombre[0]}
                     </div>
-                    <span className="text-zinc-200 font-medium">{u.nombre}</span>
+                    <div className="min-w-0">
+                      <div className="text-zinc-200 font-medium text-sm truncate">{u.nombre}</div>
+                      {u.departamento && <div className="text-zinc-600 text-xs truncate">{u.departamento}</div>}
+                    </div>
                   </div>
                 </td>
-                <td className="px-4 py-3 text-zinc-400 text-xs">{u.email}</td>
-                <td className="px-4 py-3">
-                  <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold ${rolColor[u.rol]}`}>{u.rol}</span>
+                <td className="px-3 py-2.5 text-zinc-400 text-xs truncate" title={u.email}>{u.email}</td>
+                <td className="px-3 py-2.5">
+                  <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${rolColor[u.rol]}`}>{u.rol}</span>
                 </td>
-                <td className="px-4 py-3 text-zinc-400 text-xs">{u.departamento}</td>
-                <td className="px-4 py-3 text-zinc-400 text-xs">{u.biblioteca}</td>
-                <td className="px-4 py-3">
+                <td className="px-3 py-2.5 text-zinc-400 text-xs truncate" title={u.biblioteca}>{u.biblioteca}</td>
+                <td className="px-3 py-2.5">
                   <button
                     onClick={() => toggleActivo(u.id)}
-                    className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors ${u.activo ? "bg-emerald-400/10 text-emerald-400" : "bg-zinc-700/40 text-zinc-500"}`}
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${u.activo ? "bg-emerald-400/10 text-emerald-400" : "bg-zinc-700/40 text-zinc-500"}`}
                   >
                     <span>{u.activo ? "●" : "○"}</span>{u.activo ? "Activo" : "Inactivo"}
                   </button>
                 </td>
-                <td className="px-4 py-3">
-                  <div className="flex gap-2">
-                    <button onClick={() => openEdit(u)} className="text-zinc-600 hover:text-amber-400 text-xs transition-colors">editar</button>
-                    <button onClick={() => handleDelete(u.id)} className="text-zinc-600 hover:text-red-400 text-xs transition-colors">✕</button>
+                {/* ACCIONES — siempre visibles con iconos */}
+                <td className="px-3 py-2.5">
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => openEdit(u)} title="Editar" className="p-1.5 rounded text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 transition-colors text-xs">✎</button>
+                    <button onClick={() => handleDelete(u)} title="Eliminar" className="p-1.5 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">✕</button>
                   </div>
                 </td>
               </tr>
@@ -196,35 +263,72 @@ export default function GestionUsuarios() {
         <div className="px-4 py-3 border-t border-zinc-800 text-zinc-600 text-xs">{filtered.length} de {usuarios.length} usuarios</div>
       </div>
 
-      {/* Modal */}
+      {/* Edit / New Modal */}
       {showModal && (
         <Modal title={editando ? "Editar usuario" : "Nuevo usuario"} onClose={() => setShowModal(false)}>
           <div className="space-y-4">
-            <Input label="NOMBRE COMPLETO *" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="María García..." />
-            <Input label="EMAIL *" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} placeholder="usuario@biblioteca.es" />
+            <Input 
+              label="NOMBRE COMPLETO" 
+              value={form.nombre} 
+              onChange={e => { setForm(p => ({ ...p, nombre: e.target.value })); if(errors.nombre) setErrors(p=>({...p, nombre:null})); }} 
+              placeholder="Ej: Juan Pérez" 
+              required
+              error={errors.nombre}
+            />
+            <Input 
+              label="EMAIL" 
+              value={form.email} 
+              onChange={e => { setForm(p => ({ ...p, email: e.target.value })); if(errors.email) setErrors(p=>({...p, email:null})); }} 
+              placeholder="usuario@biblioteca.es" 
+              required
+              error={errors.email}
+            />
             <div className="grid grid-cols-2 gap-4">
               <Select label="ROL" value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value }))}>
-                {["ADMIN", "TECNICO", "USUARIO"].map(r => <option key={r}>{r}</option>)}
+                <option value="USUARIO">Usuario</option>
+                <option value="TECNICO">Técnico</option>
+                <option value="ADMIN">Administrador</option>
               </Select>
-              <Input label="DEPARTAMENTO" value={form.departamento} onChange={e => setForm(p => ({ ...p, departamento: e.target.value }))} placeholder="Informática..." />
+              <Select 
+                label="BIBLIOTECA" 
+                value={form.biblioteca} 
+                onChange={e => { setForm(p => ({ ...p, biblioteca: e.target.value })); if(errors.biblioteca) setErrors(p=>({...p, biblioteca:null})); }}
+                required
+                error={errors.biblioteca}
+              >
+                {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
+              </Select>
             </div>
-            {/* BIBLIOTECA: clave para determinar qué equipos ve el usuario */}
-            <Select label="BIBLIOTECA ASIGNADA *" value={form.biblioteca} onChange={e => setForm(p => ({ ...p, biblioteca: e.target.value }))}>
-              {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
-            </Select>
-            <div className="bg-zinc-800/40 border border-zinc-700/30 rounded p-3 text-xs text-zinc-500">
-              La biblioteca asignada determina qué equipos verá el usuario al crear incidencias y en qué biblioteca se registrarán sus tickets.
-            </div>
+            <Input label="DEPARTAMENTO" value={form.departamento} onChange={e => setForm(p => ({ ...p, departamento: e.target.value }))} placeholder="Informática, Sala de lectura..." />
             {!editando && <Input label="CONTRASEÑA TEMPORAL" type="password" placeholder="••••••••" />}
-            <label className="flex items-center gap-2">
+            <label className="flex items-center gap-2 cursor-pointer pt-2">
               <input type="checkbox" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} className="accent-amber-400" />
               <span className="text-zinc-400 text-xs">Usuario activo</span>
             </label>
             <div className="flex gap-3 pt-2">
-              <Btn onClick={handleSave} disabled={!form.nombre || !form.email}>
-                {editando ? "Guardar cambios" : "Crear usuario"}
+              <Btn onClick={handleSave} disabled={!form.nombre || !form.email} loading={isSaving}>
+                {editando ? (isSaving ? "Guardando..." : "Guardar cambios") : (isSaving ? "Creando..." : "Crear usuario")}
               </Btn>
               <Btn variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* ✅ Modal de confirmación de borrado (reemplaza confirm() nativo) */}
+      {itemToDelete && (
+        <Modal title="Eliminar usuario" onClose={() => setItemToDelete(null)}>
+          <div className="space-y-4">
+            <div className="flex gap-4 items-center bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
+              <span className="text-red-400 text-2xl">⚠️</span>
+              <p className="text-zinc-300 text-sm leading-relaxed">
+                ¿Eliminar al usuario <strong>{itemToDelete.nombre}</strong>?<br />
+                <span className="text-red-400 mt-1 inline-block">Esta acción no se puede deshacer.</span>
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end pt-2">
+              <Btn variant="secondary" onClick={() => setItemToDelete(null)}>Cancelar</Btn>
+              <Btn variant="danger" onClick={executeDelete}>Eliminar usuario</Btn>
             </div>
           </div>
         </Modal>

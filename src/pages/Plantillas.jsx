@@ -39,11 +39,12 @@ export default function Plantillas({ navigate }) {
   const isAdmin = user.role === "ADMIN";
   const { addToast } = useToast();
   
-  const { plantillas, setPlantillas } = useData();
+  const { plantillas, guardarPlantilla, borrarPlantilla, registrarUsoPlantilla } = useData();
   const [showEditor, setShowEditor] = useState(false);
   const [showPreview, setShowPreview] = useState(null);
   const [itemToDelete, setItemToDelete] = useState(null);
   const [editando, setEditando] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [form, setForm] = useState({ nombre: "", categoria: "HARDWARE", descripcion: "", camposExtra: [] });
 
   // Vista Previa
@@ -52,7 +53,7 @@ export default function Plantillas({ navigate }) {
 
   const usarPlantilla = (p) => {
     // Incremento de variable local de uso
-    setPlantillas(prev => prev.map(x => x.id === p.id ? { ...x, uso: x.uso + 1 } : x));
+    registrarUsoPlantilla(p.id);
     closePreview();
     // Navigate to Incidencias carrying the plantilla data to pre-fill the form
     navigate("incidencias", null, {
@@ -78,14 +79,14 @@ export default function Plantillas({ navigate }) {
   };
 
   const handleSave = () => {
-    if (editando) {
-      setPlantillas(prev => prev.map(p => p.id === editando.id ? { ...p, ...form } : p));
-      addToast(`Plantilla "${form.nombre}" guardada`, "success");
-    } else {
-      setPlantillas(prev => [...prev, { ...form, id: Date.now(), uso: 0 }]);
-      addToast(`Nueva plantilla "${form.nombre}" creada`, "success");
-    }
-    setShowEditor(false);
+    if (!form.nombre) return;
+    setIsSaving(true);
+    setTimeout(async () => {
+      await guardarPlantilla({ ...form, id: editando ? editando.id : null });
+      addToast(editando ? `Plantilla "${form.nombre}" guardada` : `Nueva plantilla "${form.nombre}" creada`, "success");
+      setShowEditor(false);
+      setIsSaving(false);
+    }, 600);
   };
 
   const handleDelete = (p, e) => {
@@ -95,16 +96,20 @@ export default function Plantillas({ navigate }) {
 
   const executeDelete = () => {
     if (itemToDelete) {
-      setPlantillas(prev => prev.filter(p => p.id !== itemToDelete.id));
-      addToast("Plantilla eliminada permanentemente", "warning");
+      setIsSaving(true);
+      setTimeout(async () => {
+        await borrarPlantilla(itemToDelete.id);
+        addToast("Plantilla eliminada permanentemente", "warning");
+        setItemToDelete(null);
+        setIsSaving(false);
+      }, 600);
     }
-    setItemToDelete(null);
   };
 
   const totalUso = plantillas.reduce((a, p) => a + p.uso, 0);
 
   return (
-    <div className="p-8" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+    <div className="p-8">
       <PageHeader
         title="Plantillas"
         subtitle={`${plantillas.length} plantillas · ${totalUso} usos totales`}
@@ -125,11 +130,11 @@ export default function Plantillas({ navigate }) {
                 {p.categoria}
               </span>
               {isAdmin && (
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-                  <button onClick={e => openEdit(p, e)} className="text-zinc-500 hover:text-amber-400 text-xs px-2 py-1 bg-zinc-800 rounded transition-colors">
-                    editar
+                <div className="flex gap-1" onClick={e => e.stopPropagation()}>
+                  <button onClick={e => openEdit(p, e)} title="Editar plantilla" className="text-zinc-600 hover:text-amber-400 text-xs p-1.5 bg-zinc-800/60 hover:bg-zinc-800 rounded transition-colors">
+                    ✎
                   </button>
-                  <button onClick={e => handleDelete(p, e)} className="text-zinc-500 hover:text-red-400 text-xs px-2 py-1 bg-zinc-800 rounded transition-colors">
+                  <button onClick={e => handleDelete(p, e)} title="Eliminar plantilla" className="text-zinc-700 hover:text-red-400 text-xs p-1.5 bg-zinc-800/60 hover:bg-zinc-800 rounded transition-colors">
                     ✕
                   </button>
                 </div>
@@ -251,8 +256,8 @@ export default function Plantillas({ navigate }) {
               <div className="text-zinc-600 text-xs mt-1">Usa corchetes <code className="bg-zinc-800 px-1 py-0.5 rounded text-amber-400/80 mx-0.5">[ ]</code> para marcar textos que se deban rellenar (ej. <span className="text-amber-400">[UBICACIÓN]</span>).</div>
             </div>
             <div className="flex gap-3 pt-2">
-              <Btn onClick={handleSave} disabled={!form.nombre}>
-                {editando ? "Guardar cambios" : "Crear plantilla"}
+              <Btn onClick={handleSave} disabled={!form.nombre} loading={isSaving}>
+                {editando ? (isSaving ? "Guardando..." : "Guardar cambios") : (isSaving ? "Crear plantilla" : "Crear plantilla")}
               </Btn>
               <Btn variant="secondary" onClick={() => setShowEditor(false)}>Cancelar</Btn>
             </div>
@@ -271,7 +276,9 @@ export default function Plantillas({ navigate }) {
             </div>
             <div className="flex gap-3 justify-end pt-2">
               <Btn variant="secondary" onClick={() => setItemToDelete(null)}>Cancelar</Btn>
-              <Btn variant="danger" onClick={executeDelete}>Eliminar</Btn>
+              <Btn variant="danger" onClick={executeDelete} loading={isSaving}>
+                {isSaving ? "Eliminando..." : "Eliminar"}
+              </Btn>
             </div>
           </div>
         </Modal>

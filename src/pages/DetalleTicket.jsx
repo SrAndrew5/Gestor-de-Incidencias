@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { mockData } from "../services/api";
-import { Badge, PrioridadBadge, Btn, EtiquetaBadge, Modal } from "../components/UI";
+import { Badge, PrioridadBadge, Btn, EtiquetaBadge, Modal, TagInput } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
@@ -23,32 +23,36 @@ export default function DetalleTicket({ id, navigate }) {
   const isUsuario   = user.role === "USUARIO";
 
   const { addToast } = useToast();
-  const { incidencias, setIncidencias, inventario } = useData();
+  const { incidencias, setIncidencias, inventario, historialMap, addHistorialEntry } = useData();
   const inc = incidencias.find(i => i.id === id) || incidencias[0];
   const isCerrada = inc.estado === "CERRADA";
   const equipoRelacionado = inc.equipoId ? inventario.find(e => parseInt(e.id) === parseInt(inc.equipoId)) : null;
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [historial, setHistorial] = useState(mockData.historial);
+  // ✅ Historial en DataContext — persiste al navegar entre tickets
+  const historial = historialMap[inc.id] || [];
   const [comentario, setComentario] = useState("");
   const [adjuntos, setAdjuntos]     = useState(inc.adjuntos || []);
   const [estado, setEstado]         = useState(inc.estado);
   const [prioridad, setPrioridad]   = useState(inc.prioridad || null);
   const fileInputRef = useRef(null);
   const [asignado, setAsignado]     = useState(inc.asignado || "");
-  const [etiquetas]                 = useState(inc.etiquetas || []);
+  // ✅ Etiquetas ahora con setter para poder editarlas
+  const [etiquetas, setEtiquetas]   = useState(inc.etiquetas || []);
 
   const sinClasificar = !prioridad;
 
   const addToHistorial = (tipo, texto) => {
-    setHistorial(prev => [...prev, {
+    const entry = {
       id: Date.now(), tipo, texto,
       fecha: new Date().toLocaleString("es-ES", {
         year: "numeric", month: "2-digit", day: "2-digit",
         hour: "2-digit", minute: "2-digit"
       }).replace(",", ""),
       autor: user.nombre || user.username,
-    }]);
+    };
+    // ✅ Persiste en DataContext keyed by ticketId
+    addHistorialEntry(inc.id, entry);
   };
 
   const agregarComentario = () => {
@@ -58,10 +62,11 @@ export default function DetalleTicket({ id, navigate }) {
     addToast("Comentario añadido correctamente");
   };
 
-  const handleAgregarArchivo = () => {
-    const file = fileInputRef.current?.files[0];
+  // ✅ Bug corregido: acepta el evento del onChange del input
+  const handleAgregarArchivo = (e) => {
+    const file = e.target.files[0];
     if (!file) {
-      addToast("Selecciona un archivo válido antes de pulsar Adjuntar", "error");
+      addToast("Selecciona un archivo válido antes de adjuntar", "error");
       return;
     }
     const newFile = {
@@ -71,9 +76,9 @@ export default function DetalleTicket({ id, navigate }) {
       type: file.type,
       url: URL.createObjectURL(file)
     };
-    
     setAdjuntos(prev => [...prev, newFile]);
     addToHistorial("COMENTARIO", `Ha adjuntado un documento: ${file.name}`);
+    addToast(`Archivo adjunto: ${file.name}`, "success");
     e.target.value = "";
   };
 
@@ -134,7 +139,7 @@ export default function DetalleTicket({ id, navigate }) {
   const tecnicos = mockData.usuarios.filter(u => u.rol === "TECNICO");
 
   return (
-    <div className="p-8" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+    <div className="p-8">
       {/* Breadcrumb */}
       <div className="flex items-center gap-3 mb-6">
         <button onClick={() => navigate("incidencias")} className="text-zinc-500 hover:text-zinc-300 text-sm transition-colors">
@@ -208,6 +213,21 @@ export default function DetalleTicket({ id, navigate }) {
                 {etiquetas.map(t => <EtiquetaBadge key={t} tag={t} />)}
               </div>
             )}
+            {/* ✅ Edición de etiquetas habilitada */}
+            {!isCerrada && !isUsuario && (
+              <div className="mt-4 pt-4 border-t border-zinc-800/50">
+                <div className="text-zinc-500 text-xs mb-2">ETIQUETAS</div>
+                <TagInput
+                  value={etiquetas}
+                  onChange={(tags) => {
+                    setEtiquetas(tags);
+                    setIncidencias(prev => prev.map(i => i.id === inc.id ? { ...i, etiquetas: tags } : i));
+                  }}
+                  suggestions={mockData.etiquetasGlobales}
+                />
+              </div>
+            )}
+
             <div className="mt-5 pt-4 border-t border-zinc-800">
               <p className="text-zinc-400 text-sm leading-relaxed whitespace-pre-wrap">
                 {inc.descripcion || "El sistema de préstamos de la biblioteca ha dejado de responder. Los usuarios no pueden realizar préstamos ni devoluciones. Se ha comprobado que el servicio web devuelve error 503. La incidencia afecta a todos los puestos de trabajo y al módulo de autoservicio."}

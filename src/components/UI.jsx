@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export function Badge({ estado }) {
   const map = {
-    ABIERTA:     "bg-red-400/15 text-red-400 border border-red-400/30",
+    ABIERTA: "bg-red-400/15 text-red-400 border border-red-400/30",
     EN_PROGRESO: "bg-amber-400/15 text-amber-400 border border-amber-400/30",
-    RESUELTA:    "bg-emerald-400/15 text-emerald-400 border border-emerald-400/30",
-    CERRADA:     "bg-zinc-600/40 text-zinc-400 border border-zinc-600/30",
+    RESUELTA: "bg-emerald-400/15 text-emerald-400 border border-emerald-400/30",
+    CERRADA: "bg-zinc-600/40 text-zinc-400 border border-zinc-600/30",
   };
   const label = { ABIERTA: "Abierta", EN_PROGRESO: "En Progreso", RESUELTA: "Resuelta", CERRADA: "Cerrada" };
   return (
@@ -18,9 +18,9 @@ export function Badge({ estado }) {
 export function PrioridadBadge({ prioridad }) {
   const map = {
     CRITICA: "bg-red-900/60 text-red-300 border border-red-700/50",
-    ALTA:    "bg-orange-900/40 text-orange-300 border border-orange-700/40",
-    MEDIA:   "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30",
-    BAJA:    "bg-zinc-700/40 text-zinc-400 border border-zinc-600/30",
+    ALTA: "bg-orange-900/40 text-orange-300 border border-orange-700/40",
+    MEDIA: "bg-yellow-900/30 text-yellow-300 border border-yellow-700/30",
+    BAJA: "bg-zinc-700/40 text-zinc-400 border border-zinc-600/30",
   };
   const dot = { CRITICA: "●", ALTA: "●", MEDIA: "●", BAJA: "○" };
   return (
@@ -32,10 +32,10 @@ export function PrioridadBadge({ prioridad }) {
 
 export function EstadoEquipo({ estado }) {
   const map = {
-    OPERATIVO:     "bg-emerald-400/15 text-emerald-400",
-    AVERIADO:      "bg-red-400/15 text-red-400",
+    OPERATIVO: "bg-emerald-400/15 text-emerald-400",
+    AVERIADO: "bg-red-400/15 text-red-400",
     MANTENIMIENTO: "bg-amber-400/15 text-amber-400",
-    BAJA:          "bg-zinc-600/30 text-zinc-500",
+    BAJA: "bg-zinc-600/30 text-zinc-500",
   };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${map[estado] || "bg-zinc-700 text-zinc-400"}`}>{estado}</span>;
 }
@@ -128,21 +128,29 @@ export function PageHeader({ title, subtitle, actions }) {
   );
 }
 
-export function Btn({ children, onClick, variant = "primary", size = "md", disabled = false, className = "" }) {
+export function Btn({ children, onClick, variant = "primary", size = "md", disabled = false, loading = false, className = "", type = "button" }) {
   const variants = {
-    primary:   "bg-amber-400 text-zinc-950 hover:bg-amber-300 font-bold",
+    primary: "bg-amber-400 text-zinc-950 hover:bg-amber-300 font-bold",
     secondary: "bg-zinc-800 text-zinc-200 hover:bg-zinc-700 border border-zinc-700",
-    danger:    "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30",
-    ghost:     "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800",
-    success:   "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30",
+    danger: "bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30",
+    ghost: "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800",
+    success: "bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30",
   };
   const sizes = { sm: "px-3 py-1.5 text-xs", md: "px-4 py-2 text-sm", lg: "px-5 py-2.5 text-sm" };
+  const isDisabled = disabled || loading;
   return (
     <button
+      type={type}
       onClick={onClick}
-      disabled={disabled}
-      className={`inline-flex items-center gap-2 rounded transition-all ${variants[variant]} ${sizes[size]} ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
+      disabled={isDisabled}
+      className={`inline-flex items-center gap-2 rounded transition-all ${variants[variant]} ${sizes[size]} ${isDisabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"} ${className}`}
     >
+      {loading && (
+        <svg className="animate-spin h-3.5 w-3.5 flex-shrink-0" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+      )}
       {children}
     </button>
   );
@@ -152,22 +160,48 @@ export function Card({ children, className = "" }) {
   return <div className={`bg-zinc-900 border border-zinc-800 rounded-lg ${className}`}>{children}</div>;
 }
 
-export function Input({ label, ...props }) {
+export function EmptyState({ icon = "🔍", title = "Sin resultados", message = "No hemos encontrado nada con esos filtros.", className = "" }) {
   return (
-    <div>
-      {label && <label className="block text-zinc-400 text-xs mb-1.5">{label}</label>}
-      <input {...props} className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 text-sm placeholder-zinc-600 focus:outline-none focus:border-amber-400/60 transition-colors" />
+    <div className={`flex flex-col items-center justify-center py-16 px-4 text-center ${className}`}>
+      <div className="text-4xl mb-3 opacity-30">{icon}</div>
+      <h3 className="text-zinc-200 font-bold text-sm mb-1">{title}</h3>
+      <p className="text-zinc-500 text-xs max-w-xs mx-auto leading-relaxed">{message}</p>
     </div>
   );
 }
 
-export function Select({ label, children, ...props }) {
+export function Input({ label, error, required, ...props }) {
   return (
-    <div>
-      {label && <label className="block text-zinc-400 text-xs mb-1.5">{label}</label>}
-      <select {...props} className="w-full bg-zinc-800 border border-zinc-700 rounded px-3 py-2 text-zinc-200 text-sm focus:outline-none focus:border-amber-400/60 transition-colors">
+    <div className="space-y-1.5">
+      {label && (
+        <label className="block text-zinc-400 text-[10px] font-bold tracking-widest uppercase">
+          {label} {required && <span className="text-red-500">*</span>}
+        </label>
+      )}
+      <input 
+        {...props} 
+        className={`w-full bg-zinc-800 border ${error ? 'border-red-500/50 focus:border-red-500' : 'border-zinc-700 focus:border-amber-400/60'} rounded px-3 py-2 text-zinc-200 text-sm placeholder-zinc-600 focus:outline-none transition-all`} 
+      />
+      {error && <p className="text-red-400 text-[10px] font-medium animate-in fade-in slide-in-from-top-1">{error}</p>}
+    </div>
+  );
+}
+
+export function Select({ label, error, required, children, ...props }) {
+  return (
+    <div className="space-y-1.5">
+      {label && (
+        <label className="block text-zinc-400 text-[10px] font-bold tracking-widest uppercase">
+          {label} {required && <span className="text-red-500">*</span>}
+        </label>
+      )}
+      <select 
+        {...props} 
+        className={`w-full bg-zinc-800 border ${error ? 'border-red-500/50 focus:border-red-500' : 'border-zinc-700 focus:border-amber-400/60'} rounded px-3 py-2 text-zinc-200 text-sm focus:outline-none transition-all`}
+      >
         {children}
       </select>
+      {error && <p className="text-red-400 text-[10px] font-medium">{error}</p>}
     </div>
   );
 }
@@ -183,12 +217,22 @@ export function StatCard({ label, value, sub, accent = false, color = "" }) {
 }
 
 export function Modal({ title, onClose, children, wide = false }) {
+  useEffect(() => {
+    const handleEsc = (e) => { if (e.key === "Escape") onClose(); };
+    document.addEventListener("keydown", handleEsc);
+    return () => document.removeEventListener("keydown", handleEsc);
+  }, [onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 overflow-y-auto"
+      style={{ background: "rgba(0,0,0,0.75)", backdropFilter: "blur(4px)" }}
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
       <div className={`bg-zinc-900 border border-zinc-700 rounded-xl w-full shadow-2xl my-4 ${wide ? "max-w-2xl" : "max-w-lg"}`}>
         <div className="flex items-center justify-between p-5 border-b border-zinc-800">
           <h3 className="text-white font-bold text-sm">{title}</h3>
-          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 text-lg leading-none">✕</button>
+          <button onClick={onClose} className="text-zinc-500 hover:text-zinc-200 text-lg leading-none" aria-label="Cerrar">✕</button>
         </div>
         <div className="p-5 max-h-[80vh] overflow-y-auto">{children}</div>
       </div>

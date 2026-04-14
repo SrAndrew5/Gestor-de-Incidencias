@@ -36,7 +36,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+    <div className="min-h-screen bg-zinc-950 flex">
       {/* Left panel */}
       <div className="hidden lg:flex flex-col justify-between w-1/2 bg-zinc-900 border-r border-zinc-800 p-12">
         <div>

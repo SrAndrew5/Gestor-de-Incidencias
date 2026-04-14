@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
+import { Modal, Btn } from "../components/UI";
 
 // Nav items per role
 const NAV_ADMIN_TECNICO = [
@@ -18,6 +19,7 @@ const NAV_USUARIO = [
 export default function Layout({ children, page, navigate }) {
   const { user, logout } = useAuth();
   const [collapsed, setCollapsed] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
 
   const isUsuario = user.role === "USUARIO";
   const isAdmin   = user.role === "ADMIN";
@@ -37,8 +39,8 @@ export default function Layout({ children, page, navigate }) {
   };
 
   return (
-    <div className="min-h-screen bg-zinc-950 flex" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
-      {/* Sidebar — sticky + h-screen so the user footer never scrolls away */}
+    <div className="min-h-screen bg-zinc-950 flex">
+      {/* Sidebar */}
       <aside className={`flex flex-col bg-zinc-900 border-r border-zinc-800 transition-all duration-300 flex-shrink-0 sticky top-0 h-screen ${collapsed ? "w-16" : "w-56"}`}>
         {/* Logo */}
         <div className="p-4 border-b border-zinc-800 flex items-center gap-3">
@@ -51,22 +53,33 @@ export default function Layout({ children, page, navigate }) {
               <div className="text-zinc-500 text-xs">GESTIÓN TI</div>
             </div>
           )}
-          <button onClick={() => setCollapsed(!collapsed)} className="ml-auto text-zinc-600 hover:text-zinc-300 text-xs flex-shrink-0">
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="ml-auto text-zinc-600 hover:text-zinc-300 text-xs flex-shrink-0"
+            title={collapsed ? "Expandir sidebar" : "Colapsar sidebar"}
+          >
             {collapsed ? "▶" : "◀"}
           </button>
         </div>
 
-        {/* Nav — overflow-y-auto so many items don't push the footer off screen */}
+        {/* Nav */}
         <nav className="flex-1 p-2 pt-4 space-y-1 overflow-y-auto">
           {mainNav.map(item => (
             <button
               key={item.id}
               onClick={() => navigate(item.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition-all
+              title={collapsed ? item.label : undefined}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition-all relative group/nav
                 ${page === item.id ? activeColor(item.id) : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border-l-2 border-transparent"}`}
             >
               <span className="text-base flex-shrink-0">{item.icon}</span>
               {!collapsed && <span>{item.label}</span>}
+              {/* Tooltip cuando está colapsado */}
+              {collapsed && (
+                <span className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 whitespace-nowrap opacity-0 group-hover/nav:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                  {item.label}
+                </span>
+              )}
             </button>
           ))}
 
@@ -78,18 +91,24 @@ export default function Layout({ children, page, navigate }) {
                 <button
                   key={item.id}
                   onClick={() => navigate(item.id)}
-                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition-all
+                  title={collapsed ? item.label : undefined}
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded text-sm transition-all relative group/nav
                     ${page === item.id ? activeColor(item.id) : "text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 border-l-2 border-transparent"}`}
                 >
                   <span className="text-base flex-shrink-0">{item.icon}</span>
                   {!collapsed && <span>{item.label}</span>}
+                  {collapsed && (
+                    <span className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 whitespace-nowrap opacity-0 group-hover/nav:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                      {item.label}
+                    </span>
+                  )}
                 </button>
               ))}
             </>
           )}
         </nav>
 
-        {/* User */}
+        {/* User footer */}
         <div className="p-3 border-t border-zinc-800">
           {!collapsed ? (
             <div className="flex items-center gap-2">
@@ -102,18 +121,53 @@ export default function Layout({ children, page, navigate }) {
                   <span className={`text-xs px-1.5 py-0.5 rounded font-bold ${roleColor}`}>{user.role}</span>
                 </div>
               </div>
-              <button onClick={logout} className="text-zinc-600 hover:text-red-400 text-xs" title="Cerrar sesión">✕</button>
+              {/* Logout con confirmación */}
+              <button
+                onClick={() => setShowLogoutConfirm(true)}
+                className="text-zinc-600 hover:text-red-400 text-xs p-1 rounded hover:bg-zinc-800 transition-colors"
+                title="Cerrar sesión"
+              >
+                ⏻
+              </button>
             </div>
           ) : (
-            <button onClick={logout} className="w-full flex justify-center text-zinc-600 hover:text-red-400 text-xs py-1">✕</button>
+            <button
+              onClick={() => setShowLogoutConfirm(true)}
+              className="w-full flex justify-center text-zinc-600 hover:text-red-400 text-xs py-1 transition-colors relative group/logout"
+              title="Cerrar sesión"
+            >
+              ⏻
+              <span className="absolute left-full ml-2 px-2 py-1 bg-zinc-800 border border-zinc-700 rounded text-xs text-zinc-200 whitespace-nowrap opacity-0 group-hover/logout:opacity-100 transition-opacity pointer-events-none z-50 shadow-lg">
+                Cerrar sesión
+              </span>
+            </button>
           )}
         </div>
       </aside>
 
-      {/* Main */}
+      {/* Main content */}
       <main className="flex-1 overflow-auto min-w-0">
         {children}
       </main>
+
+      {/* ── Modal confirmación logout ── */}
+      {showLogoutConfirm && (
+        <Modal title="Cerrar sesión" onClose={() => setShowLogoutConfirm(false)}>
+          <div className="space-y-4">
+            <div className="flex gap-4 items-center bg-zinc-800/60 border border-zinc-700/50 p-4 rounded-lg">
+              <span className="text-2xl">⏻</span>
+              <p className="text-zinc-300 text-sm leading-relaxed">
+                ¿Cerrar la sesión de <strong>{user.nombre || user.username}</strong>?<br />
+                <span className="text-zinc-500 text-xs mt-1 inline-block">Perderás los cambios no guardados.</span>
+              </p>
+            </div>
+            <div className="flex gap-3 justify-end pt-1">
+              <Btn variant="secondary" onClick={() => setShowLogoutConfirm(false)}>Cancelar</Btn>
+              <Btn variant="danger" onClick={logout}>Cerrar sesión</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

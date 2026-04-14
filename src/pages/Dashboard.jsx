@@ -25,11 +25,11 @@ export default function Dashboard({ navigate }) {
 
   const incidencias = useMemo(() =>
     biblioFilter === "TODAS" ? allInc : allInc.filter(i => i.biblioteca === biblioFilter),
-    [biblioFilter]
+    [allInc, biblioFilter]
   );
   const inventario = useMemo(() =>
     biblioFilter === "TODAS" ? allInv : allInv.filter(i => i.biblioteca === biblioFilter),
-    [biblioFilter]
+    [allInv, biblioFilter]
   );
 
   // Métricas
@@ -38,7 +38,17 @@ export default function Dashboard({ navigate }) {
   const resueltas   = incidencias.filter(i => i.estado === "RESUELTA").length;
   const criticas    = incidencias.filter(i => i.prioridad === "CRITICA").length;
   const total       = incidencias.length;
-  const avgResolucion = mockData.stats.avgResolucion;
+  // Tiempo medio calculado: días desde creación para incidencias resueltas
+  const avgResolucion = useMemo(() => {
+    const resueltas = incidencias.filter(i => i.estado === "RESUELTA" || i.estado === "CERRADA");
+    if (!resueltas.length) return "—";
+    const today = new Date();
+    const total = resueltas.reduce((sum, i) => {
+      const diff = (today - new Date(i.fecha)) / (1000 * 60 * 60 * 24);
+      return sum + Math.max(0, diff);
+    }, 0);
+    return (total / resueltas.length).toFixed(1);
+  }, [incidencias]);
 
   // Biblioteca con más incidencias
   const incByBiblio = BIBLIOTECAS.map(b => ({
@@ -59,14 +69,25 @@ export default function Dashboard({ navigate }) {
   const maxCat = Math.max(...categorias.map(c => c.value), 1);
   const catColors = { HARDWARE: "bg-amber-400", SOFTWARE: "bg-sky-400", RED: "bg-emerald-400", AV: "bg-violet-400", SEGURIDAD: "bg-red-400" };
 
-  // Simulación de actividad semanal (Mock)
-  const actByDay = [{ d: "L", v: 8 }, { d: "M", v: 14 }, { d: "X", v: 6 }, { d: "J", v: 11 }, { d: "V", v: 9 }, { d: "S", v: 3 }, { d: "D", v: 1 }];
-  const maxV = Math.max(...actByDay.map(x => x.v));
+  // Actividad semanal basada en datos reales — últimas 7 fechas con incidencias
+  const actByDay = useMemo(() => {
+    const DAY_LABEL = ['D','L','M','X','J','V','S'];
+    const dateCount = {};
+    allInc.forEach(i => { dateCount[i.fecha] = (dateCount[i.fecha] || 0) + 1; });
+    const sorted = Object.entries(dateCount)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-7);
+    return sorted.map(([date, count]) => ({
+      d: DAY_LABEL[new Date(date + 'T12:00:00').getDay()],
+      v: count,
+    }));
+  }, [allInc]);
+  const maxV = Math.max(...actByDay.map(x => x.v), 1);
 
   const recientes = incidencias.slice(0, 5);
 
   return (
-    <div className="p-8" style={{ fontFamily: "'IBM Plex Mono', monospace" }}>
+    <div className="p-8">
       <PageHeader
         title="Dashboard"
         subtitle={`Bienvenido, ${user.nombre || user.username}`}
@@ -92,7 +113,7 @@ export default function Dashboard({ navigate }) {
         <StatCard label="EN PROGRESO" value={enProgreso} />
         <StatCard label="RESUELTAS" value={resueltas} />
         <StatCard label="CRÍTICAS" value={criticas} color="text-red-400" />
-        <StatCard label="T. RESOLUCIÓN" value={`${avgResolucion}d`} sub="promedio" />
+        <StatCard label="T. RESOLUCIÓN" value={avgResolucion !== "—" ? `${avgResolucion}d` : "—"} sub="promedio" />
       </div>
 
       <div className="grid lg:grid-cols-3 gap-6 mb-6">

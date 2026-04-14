@@ -1,5 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { DataProvider } from "./context/DataContext";
+import { ToastProvider } from "./context/ToastContext";
+import ErrorBoundary from "./components/ErrorBoundary";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
@@ -57,17 +60,16 @@ function Gate() {
   return <Router />;
 }
 
-import { DataProvider } from "./context/DataContext";
-import { ToastProvider } from "./context/ToastContext";
-
 export default function App() {
   return (
-    <AuthProvider>
-      <DataProvider>
-        <ToastProvider>
-          <Gate />
-        </ToastProvider>
-      </DataProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <DataProvider>
+          <ToastProvider>
+            <Gate />
+          </ToastProvider>
+        </DataProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
