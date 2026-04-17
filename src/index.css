@@ -2,28 +2,67 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Light theme ─────────────────────────────────────────────────────────── */
+:root {
+  /* Page background — clearly gray so pure-white cards feel elevated */
+  --c-base:  227 232 241;
+  /* Card / modal surfaces — pure white, unambiguously solid */
+  --c-card:  255 255 255;
+  /* Input fields, inner surfaces — clearly distinct from white card */
+  --c-well:  212 218 230;
+  /* Hover state */
+  --c-hov:   199 207 222;
+  /* Borders */
+  --c-edge:  200 208 222;
+  --c-edge2: 171 182 202;
+  /* Text — dark navy (less harsh than pure black) */
+  --c-ink:   17 23 37;
+  --c-ink2:  68 86 110;
+  --c-ink3:  116 136 162;
+}
+
+/* ── Dark theme ──────────────────────────────────────────────────────────── */
+.dark {
+  --c-base:  9 9 11;
+  --c-card:  24 24 27;
+  --c-well:  39 39 42;
+  --c-hov:   63 63 70;
+  --c-edge:  39 39 42;
+  --c-edge2: 63 63 70;
+  --c-ink:   228 228 231;
+  --c-ink2:  161 161 170;
+  --c-ink3:  113 113 122;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
 * {
   box-sizing: border-box;
 }
 
 body {
-  background-color: #09090b;
-  color: #e4e4e7;
+  background-color: rgb(var(--c-base));
+  color: rgb(var(--c-ink));
   margin: 0;
-  font-family: 'IBM Plex Mono', monospace;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  font-weight: 500;
+  font-size: 15px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
+/* ── Scrollbar ───────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
 }
 ::-webkit-scrollbar-track {
-  background: #18181b;
+  background: rgb(var(--c-card));
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+  background: rgb(var(--c-edge2));
   border-radius: 3px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #52525b;
+  background: rgb(var(--c-ink3));
 }

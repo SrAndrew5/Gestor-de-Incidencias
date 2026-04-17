@@ -5,9 +5,9 @@ import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
 
 const rolColor = {
-  ADMIN:   "bg-red-400/15 text-red-400 border border-red-400/30",
-  TECNICO: "bg-amber-400/15 text-amber-400 border border-amber-400/30",
-  USUARIO: "bg-sky-400/15 text-sky-400 border border-sky-400/30",
+  ADMIN:   "bg-red-200 text-red-800 border border-red-300 dark:bg-red-400/15 dark:text-red-400 dark:border-red-400/30",
+  TECNICO: "bg-amber-200 text-amber-800 border border-amber-300 dark:bg-amber-400/15 dark:text-amber-400 dark:border-amber-400/30",
+  USUARIO: "bg-sky-200 text-sky-800 border border-sky-300 dark:bg-sky-400/15 dark:text-sky-400 dark:border-sky-400/30",
 };
 
 const EMPTY = { nombre: "", email: "", rol: "USUARIO", departamento: "", biblioteca: BIBLIOTECAS[0], activo: true };
@@ -33,9 +33,8 @@ function parseUserCSV(text) {
   });
 }
 
-export default function GestionUsuarios() {
-  // ── Datos desde DataContext (persisten al navegar) ─────────────
-  const { usuarios, guardarUsuario, borrarUsuario, toggleUsuarioActivo, importarUsuarios } = useData();
+export default function GestionUsuarios({ navigate }) {
+  const { usuarios, incidencias, guardarUsuario, borrarUsuario, toggleUsuarioActivo, importarUsuarios } = useData();
   const { addToast } = useToast();
 
   const [search, setSearch]       = useState("");
@@ -46,10 +45,16 @@ export default function GestionUsuarios() {
   const [form, setForm]           = useState(EMPTY);
   const [errors, setErrors]       = useState({});
   const [importError, setImportError] = useState("");
-  const [itemToDelete, setItemToDelete] = useState(null); 
-  const [isSaving, setIsSaving] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState(null);
+  const [isSaving, setIsSaving]   = useState(false);
   const [isImporting, setIsImporting] = useState(false);
+  const [pwModal, setPwModal]     = useState(null);
+  const [pwForm, setPwForm]       = useState({ nueva: "", confirmar: "" });
+  const [pwErrors, setPwErrors]   = useState({});
+  const [isSavingPw, setIsSavingPw] = useState(false);
   const fileRef = useRef();
+
+  const incCount = (userId) => (incidencias || []).filter(i => i.creadoPorId === userId).length;
 
   const validate = () => {
     const e = {};
@@ -58,6 +63,16 @@ export default function GestionUsuarios() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Formato de email incorrecto";
     if (!form.biblioteca) e.biblioteca = "Selecciona una sede";
     setErrors(e);
+    return Object.keys(e).length === 0;
+  };
+
+  const validatePw = () => {
+    const e = {};
+    if (!pwForm.nueva) e.nueva = "Introduce la nueva contraseña";
+    else if (pwForm.nueva.length < 6) e.nueva = "Mínimo 6 caracteres";
+    if (!pwForm.confirmar) e.confirmar = "Confirma la contraseña";
+    else if (pwForm.nueva !== pwForm.confirmar) e.confirmar = "Las contraseñas no coinciden";
+    setPwErrors(e);
     return Object.keys(e).length === 0;
   };
 
@@ -84,16 +99,28 @@ export default function GestionUsuarios() {
     }, 600);
   };
 
-  const toggleActivo = (id) => {
-    toggleUsuarioActivo(id);
-  };
-
-  // ── Borrado con Modal (sustituye confirm() nativo) ─────────────
   const handleDelete = (u) => setItemToDelete(u);
   const executeDelete = async () => {
     await borrarUsuario(itemToDelete.id);
     addToast(`Usuario "${itemToDelete.nombre}" eliminado`, "warning");
     setItemToDelete(null);
+  };
+
+  const openPwReset = (u) => { setPwModal(u); setPwForm({ nueva: "", confirmar: "" }); setPwErrors({}); };
+
+  const handlePwSave = () => {
+    if (!validatePw()) return;
+    setIsSavingPw(true);
+    setTimeout(async () => {
+      await guardarUsuario({ ...pwModal, password: pwForm.nueva });
+      addToast(`Contraseña de "${pwModal.nombre}" actualizada`, "success");
+      setPwModal(null);
+      setIsSavingPw(false);
+    }, 600);
+  };
+
+  const verIncidencias = (u) => {
+    if (navigate) navigate("incidencias", null, null, { search: u.nombre });
   };
 
   const exportCSV = () => {
@@ -102,8 +129,7 @@ export default function GestionUsuarios() {
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url; a.download = "usuarios.csv"; a.click();
+    const a = document.createElement("a"); a.href = url; a.download = "usuarios.csv"; a.click();
     URL.revokeObjectURL(url);
     addToast("Exportación de usuarios completada", "success");
   };
@@ -137,6 +163,8 @@ export default function GestionUsuarios() {
     e.target.value = "";
   };
 
+  const selectCls = "bg-well border border-edge2 rounded px-3 py-2 text-ink text-sm focus:outline-none focus:border-amber-500/60";
+
   return (
     <div className="p-8">
       <PageHeader
@@ -155,31 +183,29 @@ export default function GestionUsuarios() {
       />
 
       {importError && (
-        <div className="mb-4 bg-red-900/20 border border-red-800/40 rounded-lg px-4 py-3 text-red-400 text-xs">{importError}</div>
+        <div className="mb-4 bg-red-50 border border-red-200 dark:bg-red-900/20 dark:border-red-800/40 rounded-lg px-4 py-3 text-red-700 dark:text-red-400 text-xs">{importError}</div>
       )}
 
-      {/* Role stats */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         {["ADMIN", "TECNICO", "USUARIO"].map(rol => (
-          <div key={rol} className="bg-zinc-900 border border-zinc-800 rounded-lg p-4 flex items-center gap-4">
+          <div key={rol} className="bg-card border border-edge rounded-lg p-4 flex items-center gap-4">
             <div className="flex-1">
-              <div className="text-2xl font-bold text-white">{usuarios.filter(u => u.rol === rol).length}</div>
+              <div className="text-2xl font-bold text-ink">{usuarios.filter(u => u.rol === rol).length}</div>
               <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold mt-1 ${rolColor[rol]}`}>{rol}</span>
             </div>
           </div>
         ))}
       </div>
 
-      {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-5">
         <input
           type="text"
           placeholder="Buscar por nombre o email..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="flex-1 min-w-48 bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-zinc-200 text-sm placeholder-zinc-600 focus:outline-none focus:border-amber-400/60"
+          className={`flex-1 min-w-48 ${selectCls}`}
         />
-        <select value={biblioF} onChange={e => setBiblioF(e.target.value)} className="bg-zinc-900 border border-zinc-800 rounded px-3 py-2 text-zinc-200 text-sm focus:outline-none focus:border-amber-400/60">
+        <select value={biblioF} onChange={e => setBiblioF(e.target.value)} className={selectCls}>
           <option value="TODAS">Todas las bibliotecas</option>
           {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
         </select>
@@ -188,7 +214,11 @@ export default function GestionUsuarios() {
             <button
               key={r}
               onClick={() => setRolF(r)}
-              className={`px-3 py-2 rounded text-xs transition-colors ${rolFiltro === r ? "bg-amber-400/10 text-amber-400 border border-amber-400/30" : "bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-zinc-200"}`}
+              className={`px-3 py-2 rounded text-xs transition-colors ${
+                rolFiltro === r
+                  ? "bg-amber-200 text-amber-800 border border-amber-300 dark:bg-amber-400/10 dark:text-amber-400 dark:border-amber-400/30"
+                  : "bg-card border border-edge text-ink2 hover:text-ink hover:bg-well"
+              }`}
             >
               {r}
             </button>
@@ -196,106 +226,104 @@ export default function GestionUsuarios() {
         </div>
       </div>
 
-      {/* Tabla — sin scroll horizontal, columnas fijas */}
-      <div className="bg-zinc-900 border border-zinc-800 rounded-lg overflow-hidden">
+      <div className="bg-card border border-edge rounded-lg overflow-hidden">
         <table className="w-full text-sm table-fixed">
           <colgroup>
-            <col style={{ width: "auto" }} />     {/* USUARIO + DEPTO */}
-            <col style={{ width: "13rem" }} />    {/* EMAIL */}
-            <col style={{ width: "7rem" }} />     {/* ROL */}
-            <col style={{ width: "12rem" }} />    {/* BIBLIOTECA */}
-            <col style={{ width: "7rem" }} />     {/* ESTADO */}
-            <col style={{ width: "5.5rem" }} />   {/* ACCIONES */}
+            <col style={{ width: "auto" }} />
+            <col style={{ width: "13rem" }} />
+            <col style={{ width: "7rem" }} />
+            <col style={{ width: "12rem" }} />
+            <col style={{ width: "5rem" }} />
+            <col style={{ width: "7rem" }} />
+            <col style={{ width: "7.5rem" }} />
           </colgroup>
           <thead>
-            <tr className="border-b border-zinc-800">
-              {["USUARIO", "EMAIL", "ROL", "BIBLIOTECA", "ESTADO", ""].map(h => (
-                <th key={h} className="text-left text-zinc-500 text-xs tracking-wide px-3 py-2.5 font-normal">{h}</th>
+            <tr className="border-b border-edge">
+              {["USUARIO", "EMAIL", "ROL", "BIBLIOTECA", "TICKETS", "ESTADO", ""].map(h => (
+                <th key={h} className="text-left text-ink3 text-xs tracking-wide px-3 py-2.5 font-semibold">{h}</th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-zinc-800/60">
+          <tbody className="divide-y divide-edge">
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <EmptyState title="Sin usuarios" icon="👥" message="No hay usuarios registrados con esos criterios de búsqueda." />
                 </td>
               </tr>
             )}
-            {filtered.map(u => (
-              <tr key={u.id} className={`hover:bg-zinc-800/30 transition-colors ${!u.activo ? "opacity-50" : ""}`}>
-                {/* USUARIO + DEPARTAMENTO fusionados */}
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-zinc-700 flex items-center justify-center text-zinc-300 text-xs font-bold flex-shrink-0">
-                      {u.nombre[0]}
+            {filtered.map(u => {
+              const tickets = incCount(u.id);
+              return (
+                <tr key={u.id} className={`hover:bg-well transition-colors ${!u.activo ? "opacity-50" : ""}`}>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-7 h-7 rounded-full bg-well flex items-center justify-center text-ink2 text-xs font-bold flex-shrink-0">
+                        {u.nombre[0]}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-ink font-medium text-sm truncate">{u.nombre}</div>
+                        {u.departamento && <div className="text-ink3 text-xs truncate">{u.departamento}</div>}
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div className="text-zinc-200 font-medium text-sm truncate">{u.nombre}</div>
-                      {u.departamento && <div className="text-zinc-600 text-xs truncate">{u.departamento}</div>}
+                  </td>
+                  <td className="px-3 py-2.5 text-ink2 text-xs truncate" title={u.email}>{u.email}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${rolColor[u.rol]}`}>{u.rol}</span>
+                  </td>
+                  <td className="px-3 py-2.5 text-ink2 text-xs truncate" title={u.biblioteca}>{u.biblioteca}</td>
+                  <td className="px-3 py-2.5">
+                    {tickets > 0 ? (
+                      <button
+                        onClick={() => verIncidencias(u)}
+                        title="Ver incidencias de este usuario"
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-slate-200 text-slate-700 hover:bg-amber-200 hover:text-amber-800 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-amber-400/10 dark:hover:text-amber-400 transition-colors"
+                      >
+                        {tickets} ticket{tickets !== 1 ? "s" : ""}
+                      </button>
+                    ) : (
+                      <span className="text-ink3 text-xs">—</span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <button
+                      onClick={() => toggleUsuarioActivo(u.id)}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${
+                        u.activo
+                          ? "bg-emerald-200 text-emerald-800 dark:bg-emerald-400/10 dark:text-emerald-400"
+                          : "bg-well text-ink3"
+                      }`}
+                    >
+                      <span>{u.activo ? "●" : "○"}</span>{u.activo ? "Activo" : "Inactivo"}
+                    </button>
+                  </td>
+                  <td className="px-3 py-2.5">
+                    <div className="flex items-center gap-1">
+                      <button onClick={() => openEdit(u)} title="Editar usuario" className="p-1.5 rounded text-ink3 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-well transition-colors text-xs">✎</button>
+                      <button onClick={() => openPwReset(u)} title="Cambiar contraseña" className="p-1.5 rounded text-ink3 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-well transition-colors text-xs font-bold">🔑</button>
+                      <button onClick={() => handleDelete(u)} title="Eliminar usuario" className="p-1.5 rounded text-ink3 hover:text-red-600 dark:hover:text-red-400 hover:bg-well transition-colors text-xs">✕</button>
                     </div>
-                  </div>
-                </td>
-                <td className="px-3 py-2.5 text-zinc-400 text-xs truncate" title={u.email}>{u.email}</td>
-                <td className="px-3 py-2.5">
-                  <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${rolColor[u.rol]}`}>{u.rol}</span>
-                </td>
-                <td className="px-3 py-2.5 text-zinc-400 text-xs truncate" title={u.biblioteca}>{u.biblioteca}</td>
-                <td className="px-3 py-2.5">
-                  <button
-                    onClick={() => toggleActivo(u.id)}
-                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs transition-colors ${u.activo ? "bg-emerald-400/10 text-emerald-400" : "bg-zinc-700/40 text-zinc-500"}`}
-                  >
-                    <span>{u.activo ? "●" : "○"}</span>{u.activo ? "Activo" : "Inactivo"}
-                  </button>
-                </td>
-                {/* ACCIONES — siempre visibles con iconos */}
-                <td className="px-3 py-2.5">
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => openEdit(u)} title="Editar" className="p-1.5 rounded text-zinc-500 hover:text-amber-400 hover:bg-zinc-800 transition-colors text-xs">✎</button>
-                    <button onClick={() => handleDelete(u)} title="Eliminar" className="p-1.5 rounded text-zinc-600 hover:text-red-400 hover:bg-zinc-800 transition-colors text-xs">✕</button>
-                  </div>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-        <div className="px-4 py-3 border-t border-zinc-800 text-zinc-600 text-xs">{filtered.length} de {usuarios.length} usuarios</div>
+        <div className="px-4 py-3 border-t border-edge text-ink3 text-xs">{filtered.length} de {usuarios.length} usuarios</div>
       </div>
 
-      {/* Edit / New Modal */}
       {showModal && (
         <Modal title={editando ? "Editar usuario" : "Nuevo usuario"} onClose={() => setShowModal(false)}>
           <div className="space-y-4">
-            <Input 
-              label="NOMBRE COMPLETO" 
-              value={form.nombre} 
-              onChange={e => { setForm(p => ({ ...p, nombre: e.target.value })); if(errors.nombre) setErrors(p=>({...p, nombre:null})); }} 
-              placeholder="Ej: Juan Pérez" 
-              required
-              error={errors.nombre}
-            />
-            <Input 
-              label="EMAIL" 
-              value={form.email} 
-              onChange={e => { setForm(p => ({ ...p, email: e.target.value })); if(errors.email) setErrors(p=>({...p, email:null})); }} 
-              placeholder="usuario@biblioteca.es" 
-              required
-              error={errors.email}
-            />
+            <Input label="NOMBRE COMPLETO" value={form.nombre} onChange={e => { setForm(p => ({ ...p, nombre: e.target.value })); if (errors.nombre) setErrors(p => ({ ...p, nombre: null })); }} placeholder="Ej: Juan Pérez" required error={errors.nombre} />
+            <Input label="EMAIL" value={form.email} onChange={e => { setForm(p => ({ ...p, email: e.target.value })); if (errors.email) setErrors(p => ({ ...p, email: null })); }} placeholder="usuario@biblioteca.es" required error={errors.email} />
             <div className="grid grid-cols-2 gap-4">
               <Select label="ROL" value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value }))}>
                 <option value="USUARIO">Usuario</option>
                 <option value="TECNICO">Técnico</option>
                 <option value="ADMIN">Administrador</option>
               </Select>
-              <Select 
-                label="BIBLIOTECA" 
-                value={form.biblioteca} 
-                onChange={e => { setForm(p => ({ ...p, biblioteca: e.target.value })); if(errors.biblioteca) setErrors(p=>({...p, biblioteca:null})); }}
-                required
-                error={errors.biblioteca}
-              >
+              <Select label="BIBLIOTECA" value={form.biblioteca} onChange={e => { setForm(p => ({ ...p, biblioteca: e.target.value })); if (errors.biblioteca) setErrors(p => ({ ...p, biblioteca: null })); }} required error={errors.biblioteca}>
                 {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
               </Select>
             </div>
@@ -303,7 +331,7 @@ export default function GestionUsuarios() {
             {!editando && <Input label="CONTRASEÑA TEMPORAL" type="password" placeholder="••••••••" />}
             <label className="flex items-center gap-2 cursor-pointer pt-2">
               <input type="checkbox" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} className="accent-amber-400" />
-              <span className="text-zinc-400 text-xs">Usuario activo</span>
+              <span className="text-ink2 text-xs">Usuario activo</span>
             </label>
             <div className="flex gap-3 pt-2">
               <Btn onClick={handleSave} disabled={!form.nombre || !form.email} loading={isSaving}>
@@ -315,15 +343,54 @@ export default function GestionUsuarios() {
         </Modal>
       )}
 
-      {/* ✅ Modal de confirmación de borrado (reemplaza confirm() nativo) */}
+      {pwModal && (
+        <Modal title="Cambiar contraseña" onClose={() => setPwModal(null)}>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3 bg-well border border-edge rounded-lg p-3">
+              <div className="w-8 h-8 rounded-full bg-card flex items-center justify-center text-ink2 text-sm font-bold flex-shrink-0">
+                {pwModal.nombre[0]}
+              </div>
+              <div>
+                <div className="text-ink font-medium text-sm">{pwModal.nombre}</div>
+                <div className="text-ink3 text-xs">{pwModal.email}</div>
+              </div>
+            </div>
+            <Input
+              label="NUEVA CONTRASEÑA"
+              type="password"
+              value={pwForm.nueva}
+              onChange={e => { setPwForm(p => ({ ...p, nueva: e.target.value })); if (pwErrors.nueva) setPwErrors(p => ({ ...p, nueva: null })); }}
+              placeholder="Mínimo 6 caracteres"
+              required
+              error={pwErrors.nueva}
+            />
+            <Input
+              label="CONFIRMAR CONTRASEÑA"
+              type="password"
+              value={pwForm.confirmar}
+              onChange={e => { setPwForm(p => ({ ...p, confirmar: e.target.value })); if (pwErrors.confirmar) setPwErrors(p => ({ ...p, confirmar: null })); }}
+              placeholder="Repite la contraseña"
+              required
+              error={pwErrors.confirmar}
+            />
+            <div className="flex gap-3 pt-2">
+              <Btn onClick={handlePwSave} loading={isSavingPw}>
+                {isSavingPw ? "Guardando..." : "Cambiar contraseña"}
+              </Btn>
+              <Btn variant="secondary" onClick={() => setPwModal(null)}>Cancelar</Btn>
+            </div>
+          </div>
+        </Modal>
+      )}
+
       {itemToDelete && (
         <Modal title="Eliminar usuario" onClose={() => setItemToDelete(null)}>
           <div className="space-y-4">
-            <div className="flex gap-4 items-center bg-red-500/10 border border-red-500/20 p-4 rounded-lg">
-              <span className="text-red-400 text-2xl">⚠️</span>
-              <p className="text-zinc-300 text-sm leading-relaxed">
+            <div className="flex gap-4 items-center bg-red-50 border border-red-200 dark:bg-red-500/10 dark:border-red-500/20 p-4 rounded-lg">
+              <span className="text-red-500 text-2xl">⚠️</span>
+              <p className="text-ink text-sm leading-relaxed">
                 ¿Eliminar al usuario <strong>{itemToDelete.nombre}</strong>?<br />
-                <span className="text-red-400 mt-1 inline-block">Esta acción no se puede deshacer.</span>
+                <span className="text-red-600 dark:text-red-400 mt-1 inline-block">Esta acción no se puede deshacer.</span>
               </p>
             </div>
             <div className="flex gap-3 justify-end pt-2">
