@@ -79,6 +79,8 @@ export function DataProvider({ children }) {
     setUsuarios(prev => [...nuevos, ...prev]);
   }, []);
 
+  const tecnicos = mockData.usuarios.filter(u => u.role === "TECNICO");
+
   // ── ACCIONES PARA PLANTILLAS ──────────────────────────────
   const guardarPlantilla = useCallback(async (p) => {
     if (p.id) {

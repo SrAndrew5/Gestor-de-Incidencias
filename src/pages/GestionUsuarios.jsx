@@ -4,13 +4,13 @@ import { PageHeader, Btn, Modal, Input, Select, EmptyState } from "../components
 import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
 
-const rolColor = {
+const roleColor = {
   ADMIN:   "bg-red-200 text-red-800 border border-red-300 dark:bg-red-400/15 dark:text-red-400 dark:border-red-400/30",
   TECNICO: "bg-amber-200 text-amber-800 border border-amber-300 dark:bg-amber-400/15 dark:text-amber-400 dark:border-amber-400/30",
   USUARIO: "bg-sky-200 text-sky-800 border border-sky-300 dark:bg-sky-400/15 dark:text-sky-400 dark:border-sky-400/30",
 };
 
-const EMPTY = { nombre: "", email: "", rol: "USUARIO", departamento: "", biblioteca: BIBLIOTECAS[0], activo: true };
+const EMPTY = { nombre: "", email: "", role: "USUARIO", departamento: "", biblioteca: BIBLIOTECAS[0], activo: true };
 
 function parseUserCSV(text) {
   const lines = text.trim().split(/\r?\n/);
@@ -25,7 +25,7 @@ function parseUserCSV(text) {
       id:           Date.now() + i,
       nombre:       obj.nombre || obj.name || `Usuario ${i + 1}`,
       email:        obj.email || "",
-      rol:          (obj.rol || obj.role || "USUARIO").toUpperCase(),
+      role:         (obj.rol || obj.role || "USUARIO").toUpperCase(),
       departamento: obj.departamento || obj.department || "",
       biblioteca:   obj.biblioteca || BIBLIOTECAS[0],
       activo:       obj.activo !== "No" && obj.activo !== "false" && obj.activo !== "0",
@@ -38,7 +38,7 @@ export default function GestionUsuarios({ navigate }) {
   const { addToast } = useToast();
 
   const [search, setSearch]       = useState("");
-  const [rolFiltro, setRolF]      = useState("TODOS");
+  const [roleFiltro, setRolF]      = useState("TODOS");
   const [biblioF, setBiblioF]     = useState("TODAS");
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando]   = useState(null);
@@ -79,9 +79,9 @@ export default function GestionUsuarios({ navigate }) {
   const filtered = usuarios.filter(u => {
     const q = search.toLowerCase();
     const matchSearch = !search || u.nombre.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
-    const matchRol    = rolFiltro === "TODOS" || u.rol === rolFiltro;
+    const matchRole    = roleFiltro === "TODOS" || u.role === roleFiltro;
     const matchBiblio = biblioF === "TODAS" || u.biblioteca === biblioF;
-    return matchSearch && matchRol && matchBiblio;
+    return matchSearch && matchRole && matchBiblio;
   });
 
   const openEdit = (u) => { setEditando(u); setForm({ ...u }); setErrors({}); setShowModal(true); };
@@ -125,7 +125,7 @@ export default function GestionUsuarios({ navigate }) {
 
   const exportCSV = () => {
     const headers = ["Nombre", "Email", "Rol", "Departamento", "Biblioteca", "Activo"];
-    const rows = usuarios.map(u => [u.nombre, u.email, u.rol, u.departamento, u.biblioteca, u.activo ? "Sí" : "No"]);
+    const rows = usuarios.map(u => [u.nombre, u.email, u.role, u.departamento, u.biblioteca, u.activo ? "Sí" : "No"]);
     const csv = [headers, ...rows].map(r => r.map(c => `"${c}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
@@ -190,7 +190,7 @@ export default function GestionUsuarios({ navigate }) {
         {["ADMIN", "TECNICO", "USUARIO"].map(rol => (
           <div key={rol} className="bg-card border border-edge rounded-lg p-4 flex items-center gap-4">
             <div className="flex-1">
-              <div className="text-2xl font-bold text-ink">{usuarios.filter(u => u.rol === rol).length}</div>
+              <div className="text-2xl font-bold text-ink">{usuarios.filter(u => u.role === rol).length}</div>
               <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold mt-1 ${rolColor[rol]}`}>{rol}</span>
             </div>
           </div>
@@ -215,7 +215,7 @@ export default function GestionUsuarios({ navigate }) {
               key={r}
               onClick={() => setRolF(r)}
               className={`px-3 py-2 rounded text-xs transition-colors ${
-                rolFiltro === r
+                roleFiltro === r
                   ? "bg-amber-200 text-amber-800 border border-amber-300 dark:bg-amber-400/10 dark:text-amber-400 dark:border-amber-400/30"
                   : "bg-card border border-edge text-ink2 hover:text-ink hover:bg-well"
               }`}
@@ -239,7 +239,7 @@ export default function GestionUsuarios({ navigate }) {
           </colgroup>
           <thead>
             <tr className="border-b border-edge">
-              {["USUARIO", "EMAIL", "ROL", "BIBLIOTECA", "TICKETS", "ESTADO", ""].map(h => (
+              {["USUARIO", "EMAIL", "ROLE", "BIBLIOTECA", "TICKETS", "ESTADO", ""].map(h => (
                 <th key={h} className="text-left text-ink3 text-xs tracking-wide px-3 py-2.5 font-semibold">{h}</th>
               ))}
             </tr>
@@ -269,7 +269,7 @@ export default function GestionUsuarios({ navigate }) {
                   </td>
                   <td className="px-3 py-2.5 text-ink2 text-xs truncate" title={u.email}>{u.email}</td>
                   <td className="px-3 py-2.5">
-                    <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${rolColor[u.rol]}`}>{u.rol}</span>
+                    <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${rolColor[u.role]}`}>{u.role}</span>
                   </td>
                   <td className="px-3 py-2.5 text-ink2 text-xs truncate" title={u.biblioteca}>{u.biblioteca}</td>
                   <td className="px-3 py-2.5">
@@ -318,7 +318,7 @@ export default function GestionUsuarios({ navigate }) {
             <Input label="NOMBRE COMPLETO" value={form.nombre} onChange={e => { setForm(p => ({ ...p, nombre: e.target.value })); if (errors.nombre) setErrors(p => ({ ...p, nombre: null })); }} placeholder="Ej: Juan Pérez" required error={errors.nombre} />
             <Input label="EMAIL" value={form.email} onChange={e => { setForm(p => ({ ...p, email: e.target.value })); if (errors.email) setErrors(p => ({ ...p, email: null })); }} placeholder="usuario@biblioteca.es" required error={errors.email} />
             <div className="grid grid-cols-2 gap-4">
-              <Select label="ROL" value={form.rol} onChange={e => setForm(p => ({ ...p, rol: e.target.value }))}>
+              <Select label="ROLE" value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}>
                 <option value="USUARIO">Usuario</option>
                 <option value="TECNICO">Técnico</option>
                 <option value="ADMIN">Administrador</option>

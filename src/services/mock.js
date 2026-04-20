@@ -29,12 +29,12 @@ export const mockData = {
     { id: 8, codigoInventario: "BSUR-MON-001", nombre: "Monitor LG 27'' 4K", tipo: "MONITOR", biblioteca: "Biblioteca Sur", sala: "Sala 3", puesto: "Puesto 08", estado: "OPERATIVO", serie: "SN-6641-H", marca: "LG", modelo: "27UK850-W", so: "", ram: "", cpu: "", almacenamiento: "", ultima_revision: "2024-11-05", etiquetas: [] },
   ],
   usuarios: [
-    { id: 1, nombre: "María García",   email: "m.garcia@biblioteca.es",    rol: "ADMIN",   activo: true,  departamento: "Dirección",   biblioteca: "Biblioteca Central" },
-    { id: 2, nombre: "Juan Técnico",   email: "j.tecnico@biblioteca.es",   rol: "TECNICO", activo: true,  departamento: "Informática", biblioteca: "Biblioteca Central" },
-    { id: 3, nombre: "Ana Soto",       email: "a.soto@biblioteca.es",      rol: "TECNICO", activo: true,  departamento: "Informática", biblioteca: "Biblioteca Norte" },
-    { id: 4, nombre: "Carlos R.",      email: "c.rodriguez@biblioteca.es", rol: "TECNICO", activo: false, departamento: "Informática", biblioteca: "Biblioteca Sur" },
-    { id: 5, nombre: "Lucía Fernández",email: "l.fernandez@biblioteca.es", rol: "USUARIO", activo: true,  departamento: "Referencia",  biblioteca: "Biblioteca Central" },
-    { id: 6, nombre: "Pedro Molina",   email: "p.molina@biblioteca.es",    rol: "USUARIO", activo: true,  departamento: "Infantil",    biblioteca: "Biblioteca Norte" },
+    { id: 1, nombre: "María García",   email: "m.garcia@biblioteca.es",    role: "ADMIN",   activo: true,  departamento: "Dirección",   biblioteca: "Biblioteca Central" },
+    { id: 2, nombre: "Juan Técnico",   email: "j.tecnico@biblioteca.es",   role: "TECNICO", activo: true,  departamento: "Informática", biblioteca: "Biblioteca Central" },
+    { id: 3, nombre: "Ana Soto",       email: "a.soto@biblioteca.es",      role: "TECNICO", activo: true,  departamento: "Informática", biblioteca: "Biblioteca Norte" },
+    { id: 4, nombre: "Carlos R.",      email: "c.rodriguez@biblioteca.es", role: "TECNICO", activo: false, departamento: "Informática", biblioteca: "Biblioteca Sur" },
+    { id: 5, nombre: "Lucía Fernández",email: "l.fernandez@biblioteca.es", role: "USUARIO", activo: true,  departamento: "Referencia",  biblioteca: "Biblioteca Central" },
+    { id: 6, nombre: "Pedro Molina",   email: "p.molina@biblioteca.es",    role: "USUARIO", activo: true,  departamento: "Infantil",    biblioteca: "Biblioteca Norte" },
   ],
   plantillas: [
     { id: 1, nombre: "Avería Hardware Estándar",    categoria: "HARDWARE",  uso: 34, descripcion: "Plantilla para reportar averías en equipos físicos. Incluye campos de diagnóstico inicial." },

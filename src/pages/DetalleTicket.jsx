@@ -23,7 +23,8 @@ export default function DetalleTicket({ id, navigate }) {
   const isUsuario   = user.role === "USUARIO";
 
   const { addToast } = useToast();
-  const { incidencias, setIncidencias, inventario, historialMap, addHistorialEntry } = useData();
+  const { incidencias, actualizarIncidencia, borrarIncidencia, inventario, usuarios, historialMap, addHistorialEntry } = useData();
+  const tecnicos = usuarios.filter(u => u.role === "TECNICO");
   const inc = incidencias.find(i => i.id === id) || incidencias[0];
   const isCerrada = inc.estado === "CERRADA";
   const equipoRelacionado = inc.equipoId ? inventario.find(e => parseInt(e.id) === parseInt(inc.equipoId)) : null;
@@ -68,7 +69,7 @@ export default function DetalleTicket({ id, navigate }) {
 
   const cambiarEstado = (nuevoEstado) => {
     setEstado(nuevoEstado);
-    setIncidencias(prev => prev.map(i => i.id === inc.id ? { ...i, estado: nuevoEstado } : i));
+    actualizarIncidencia(inc.id, { estado: nuevoEstado });
     addToHistorial("ESTADO", `Estado cambiado a ${nuevoEstado.replace("_", " ")}`);
     addToast(`Estado actualizado a ${nuevoEstado.replace("_", " ")}`);
   };
@@ -76,7 +77,7 @@ export default function DetalleTicket({ id, navigate }) {
   const asignarPrioridad = (p) => {
     const anterior = prioridad;
     setPrioridad(p);
-    setIncidencias(prev => prev.map(i => i.id === inc.id ? { ...i, prioridad: p } : i));
+    actualizarIncidencia(inc.id, { prioridad: p });
     addToHistorial("PRIORIDAD", anterior ? `Prioridad actualizada: ${anterior} → ${p}` : `Prioridad asignada: ${p}`);
     addToast(`Prioridad ${p} asignada`);
   };
@@ -103,12 +104,10 @@ export default function DetalleTicket({ id, navigate }) {
   };
 
   const executeDelete = () => {
-    setIncidencias(prev => prev.filter(i => i.id !== inc.id));
+    borrarIncidencia(inc.id);
     addToast(`Ticket #${inc.id} ha sido borrado del sistema`, "warning");
     navigate("incidencias");
   };
-
-  const tecnicos = mockData.usuarios.filter(u => u.rol === "TECNICO");
 
   return (
     <div className="p-8">
@@ -192,7 +191,7 @@ export default function DetalleTicket({ id, navigate }) {
                   value={etiquetas}
                   onChange={(tags) => {
                     setEtiquetas(tags);
-                    setIncidencias(prev => prev.map(i => i.id === inc.id ? { ...i, etiquetas: tags } : i));
+                    actualizarIncidencia(inc.id, { etiquetas: tags });
                   }}
                   suggestions={mockData.etiquetasGlobales}
                 />
@@ -327,7 +326,7 @@ export default function DetalleTicket({ id, navigate }) {
                 <button
                   onClick={() => {
                     setPrioridad(null);
-                    setIncidencias(prev => prev.map(i => i.id === inc.id ? { ...i, prioridad: null } : i));
+                    actualizarIncidencia(inc.id, { prioridad: null });
                     addToHistorial("PRIORIDAD", "Prioridad eliminada — pendiente de clasificar");
                     addToast("Prioridad eliminada", "warning");
                   }}
@@ -373,7 +372,7 @@ export default function DetalleTicket({ id, navigate }) {
                   const nuevo = e.target.value;
                   const anterior = asignado;
                   setAsignado(nuevo);
-                  setIncidencias(prev => prev.map(i => i.id === inc.id ? { ...i, asignado: nuevo || null } : i));
+                  actualizarIncidencia(inc.id, { asignado: nuevo || null });
                   addToHistorial("ASIGNACION", nuevo ? `Asignada a ${nuevo}${anterior ? ` (antes: ${anterior})` : ""}` : "Asignación eliminada");
                   addToast(nuevo ? `Ticket asignado a ${nuevo}` : "Asignación eliminada");
                 }}
