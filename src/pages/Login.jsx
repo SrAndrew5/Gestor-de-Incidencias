@@ -2,9 +2,9 @@ import { useState } from "react";
 import { useAuth } from "../context/AuthContext";
 
 const DEMO_USERS = {
-  admin:   { id: 1, nombre: "María García",    username: "admin",   role: "ADMIN",   token: "demo-admin-token" },
-  tecnico: { id: 2, nombre: "Juan Técnico",    username: "tecnico", role: "TECNICO", token: "demo-tech-token" },
-  usuario: { id: 3, nombre: "Lucía Fernández", username: "usuario", role: "USUARIO", token: "demo-user-token" },
+  admin:   { id: 1, nombre: "María García",    username: "admin",   role: "ADMIN",   token: "demo-admin-token", biblioteca: "Biblioteca Central" },
+  tecnico: { id: 2, nombre: "Juan Técnico",    username: "tecnico", role: "TECNICO", token: "demo-tech-token",  biblioteca: "Biblioteca Central" },
+  usuario: { id: 5, nombre: "Lucía Fernández", username: "usuario", role: "USUARIO", token: "demo-user-token",  biblioteca: "Biblioteca Central" },
 };
 
 export default function Login() {
@@ -23,7 +23,7 @@ export default function Login() {
       const demo = DEMO_USERS[form.username];
       if (demo && form.password === "demo") {
         localStorage.setItem("token", demo.token);
-        localStorage.setItem("user", JSON.stringify({ id: demo.id, nombre: demo.nombre, username: demo.username, role: demo.role }));
+        localStorage.setItem("user", JSON.stringify({ id: demo.id, nombre: demo.nombre, username: demo.username, role: demo.role, biblioteca: demo.biblioteca }));
         window.location.reload();
       } else {
         setError("Credenciales incorrectas. Demo: admin/demo, tecnico/demo, usuario/demo");

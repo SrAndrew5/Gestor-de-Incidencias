@@ -8,7 +8,7 @@ export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
 
   const addToast = useCallback((message, type = "success") => {
-    const id = Date.now();
+    const id = crypto.randomUUID();
     setToasts(prev => {
       // Límite de 4 toasts: descarta el más antiguo si se supera
       const next = [...prev, { id, message, type }];

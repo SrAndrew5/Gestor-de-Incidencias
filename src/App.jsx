@@ -4,6 +4,7 @@ import { DataProvider } from "./context/DataContext";
 import { ToastProvider } from "./context/ToastContext";
 import { ThemeProvider } from "./context/ThemeContext";
 import ErrorBoundary from "./components/ErrorBoundary";
+import RoleGuard, { Unauthorized } from "./components/RoleGuard";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 import Dashboard from "./pages/Dashboard";
@@ -23,7 +24,6 @@ function Router() {
   const [filtrosIniciales, setFiltrosIniciales] = useState(null);
 
   const navigate = (p, id = null, plantilla = null, filtros = null) => {
-    if (isUsuario && ["dashboard", "inventario", "usuarios", "plantillas"].includes(p)) return;
     setPage(p);
     setTicketId(id);
     setPlantillaActiva(plantilla);
@@ -34,20 +34,16 @@ function Router() {
   if (!user) return <Login />;
 
   const renderPage = () => {
-    if (isUsuario) {
-      if (page === "detalle") return <DetalleTicket id={ticketId} navigate={navigate} />;
-      if (page === "configuracion") return <Configuracion />;
-      return <Incidencias navigate={navigate} plantillaActiva={plantillaActiva} onPlantillaUsada={() => setPlantillaActiva(null)} />;
-    }
     switch (page) {
-      case "dashboard":      return <Dashboard navigate={navigate} />;
-      case "inventario":     return <Inventario navigate={navigate} />;
+      case "dashboard":      return <RoleGuard allowed={["ADMIN", "TECNICO"]} isRoute navigate={navigate}><Dashboard navigate={navigate} /></RoleGuard>;
+      case "inventario":     return <RoleGuard allowed={["ADMIN", "TECNICO"]} isRoute navigate={navigate}><Inventario navigate={navigate} /></RoleGuard>;
       case "incidencias":    return <Incidencias navigate={navigate} plantillaActiva={plantillaActiva} onPlantillaUsada={() => { setPlantillaActiva(null); setFiltrosIniciales(null); }} filtrosIniciales={filtrosIniciales} />;
       case "detalle":        return <DetalleTicket id={ticketId} navigate={navigate} />;
       case "plantillas":     return <Plantillas navigate={navigate} />;
       case "configuracion":  return <Configuracion />;
-      case "usuarios":       return user.role === "ADMIN" ? <GestionUsuarios navigate={navigate} /> : <Dashboard navigate={navigate} />;
-      default:               return <Dashboard navigate={navigate} />;
+      case "usuarios":       return <RoleGuard allowed={["ADMIN"]} isRoute navigate={navigate}><GestionUsuarios navigate={navigate} /></RoleGuard>;
+      case "unauthorized":   return <Unauthorized navigate={navigate} />;
+      default:               return <Incidencias navigate={navigate} />;
     }
   };
 

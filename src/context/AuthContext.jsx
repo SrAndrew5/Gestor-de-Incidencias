@@ -7,12 +7,20 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const sanitizeUserDTO = (raw) => ({
+    id: raw?.id || 0,
+    nombre: raw?.nombre || "Anónimo",
+    username: raw?.username || "anon",
+    role: raw?.role || "USUARIO",
+    biblioteca: raw?.biblioteca || "Biblioteca Central",
+  });
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     const savedUser = localStorage.getItem("user");
     if (token && savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
+        setUser(sanitizeUserDTO(JSON.parse(savedUser)));
       } catch {}
     }
     setLoading(false);
@@ -20,10 +28,11 @@ export function AuthProvider({ children }) {
 
   const login = async (username, password) => {
     const res = await api.post("/auth/login", { username, password });
+    const safeUser = sanitizeUserDTO(res.user);
     localStorage.setItem("token", res.token);
-    localStorage.setItem("user", JSON.stringify(res.user));
-    setUser(res.user);
-    return res.user;
+    localStorage.setItem("user", JSON.stringify(safeUser));
+    setUser(safeUser);
+    return safeUser;
   };
 
   const logout = () => {

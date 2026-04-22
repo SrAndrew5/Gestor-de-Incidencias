@@ -23,7 +23,7 @@ function parseExcelCSV(text) {
     const cols = line.split(sep).map(c => c.replace(/^"|"$/g, "").trim());
     const obj = {}; headers.forEach((h, idx) => { obj[h] = cols[idx] || ""; });
     return {
-      id: Date.now() + i,
+      id: crypto.randomUUID(),
       codigoInventario: obj.codigoinventario || obj.codigo || obj.cod || "",
       nombre:           obj.nombre || obj.name || `Equipo ${i + 1}`,
       marca:            obj.marca || obj.brand || "",

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useCallback } from "react";
+import { createContext, useContext, useState, useCallback, useMemo } from "react";
 import { mockData, api } from "../services/api";
 
 const DataContext = createContext(null);
@@ -20,7 +20,7 @@ export function DataProvider({ children }) {
   const crearIncidencia = useCallback(async (nueva) => {
     // Aquí iría el api.post('/incidencias')
     // Por ahora simulamos localmente:
-    const item = { ...nueva, id: Date.now(), fecha: new Date().toISOString().slice(0, 10), estado: "ABIERTA" };
+    const item = { ...nueva, id: crypto.randomUUID(), fecha: new Date().toISOString().slice(0, 10), estado: "ABIERTA" };
     setIncidencias(prev => [item, ...prev]);
     return item;
   }, []);
@@ -44,7 +44,7 @@ export function DataProvider({ children }) {
     if (equipo.id) {
       setInventario(prev => prev.map(i => i.id === equipo.id ? equipo : i));
     } else {
-      const nuevo = { ...equipo, id: Date.now(), ultima_revision: new Date().toISOString().slice(0, 10) };
+      const nuevo = { ...equipo, id: crypto.randomUUID(), ultima_revision: new Date().toISOString().slice(0, 10) };
       setInventario(prev => [nuevo, ...prev]);
     }
   }, []);
@@ -62,7 +62,7 @@ export function DataProvider({ children }) {
     if (user.id) {
       setUsuarios(prev => prev.map(u => u.id === user.id ? user : u));
     } else {
-      const nuevo = { ...user, id: Date.now() };
+      const nuevo = { ...user, id: crypto.randomUUID() };
       setUsuarios(prev => [nuevo, ...prev]);
     }
   }, []);
@@ -86,7 +86,7 @@ export function DataProvider({ children }) {
     if (p.id) {
       setPlantillas(prev => prev.map(x => x.id === p.id ? p : x));
     } else {
-      const nueva = { ...p, id: Date.now(), uso: 0 };
+      const nueva = { ...p, id: crypto.randomUUID(), uso: 0 };
       setPlantillas(prev => [...prev, nueva]);
     }
   }, []);
@@ -107,19 +107,28 @@ export function DataProvider({ children }) {
     }));
   }, [setHistorialMap]);
 
+  const contextValue = useMemo(() => ({
+    // Data
+    incidencias, inventario, plantillas, usuarios, historialMap,
+    // Actions
+    crearIncidencia, actualizarIncidencia, borrarIncidencia, importarIncidencias,
+    guardarEquipo, borrarEquipo, importarEquipos,
+    guardarUsuario, toggleUsuarioActivo, borrarUsuario, importarUsuarios,
+    guardarPlantilla, borrarPlantilla, registrarUsoPlantilla,
+    addHistorialEntry,
+    // Temporales (para no romper el build mientras migramos páginas)
+    setIncidencias, setInventario, setPlantillas, setUsuarios
+  }), [
+    incidencias, inventario, plantillas, usuarios, historialMap,
+    crearIncidencia, actualizarIncidencia, borrarIncidencia, importarIncidencias,
+    guardarEquipo, borrarEquipo, importarEquipos,
+    guardarUsuario, toggleUsuarioActivo, borrarUsuario, importarUsuarios,
+    guardarPlantilla, borrarPlantilla, registrarUsoPlantilla,
+    addHistorialEntry
+  ]);
+
   return (
-    <DataContext.Provider value={{
-      // Data
-      incidencias, inventario, plantillas, usuarios, historialMap,
-      // Actions
-      crearIncidencia, actualizarIncidencia, borrarIncidencia, importarIncidencias,
-      guardarEquipo, borrarEquipo, importarEquipos,
-      guardarUsuario, toggleUsuarioActivo, borrarUsuario, importarUsuarios,
-      guardarPlantilla, borrarPlantilla, registrarUsoPlantilla,
-      addHistorialEntry,
-      // Temporales (para no romper el build mientras migramos páginas)
-      setIncidencias, setInventario, setPlantillas, setUsuarios
-    }}>
+    <DataContext.Provider value={contextValue}>
       {children}
     </DataContext.Provider>
   );

@@ -22,7 +22,7 @@ function parseUserCSV(text) {
     const obj = {};
     headers.forEach((h, idx) => { obj[h] = cols[idx] || ""; });
     return {
-      id:           Date.now() + i,
+      id:           crypto.randomUUID(),
       nombre:       obj.nombre || obj.name || `Usuario ${i + 1}`,
       email:        obj.email || "",
       role:         (obj.rol || obj.role || "USUARIO").toUpperCase(),
@@ -191,7 +191,7 @@ export default function GestionUsuarios({ navigate }) {
           <div key={rol} className="bg-card border border-edge rounded-lg p-4 flex items-center gap-4">
             <div className="flex-1">
               <div className="text-2xl font-bold text-ink">{usuarios.filter(u => u.role === rol).length}</div>
-              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold mt-1 ${rolColor[rol]}`}>{rol}</span>
+              <span className={`inline-flex px-2 py-0.5 rounded text-xs font-bold mt-1 ${roleColor[rol]}`}>{rol}</span>
             </div>
           </div>
         ))}
@@ -269,7 +269,7 @@ export default function GestionUsuarios({ navigate }) {
                   </td>
                   <td className="px-3 py-2.5 text-ink2 text-xs truncate" title={u.email}>{u.email}</td>
                   <td className="px-3 py-2.5">
-                    <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${rolColor[u.role]}`}>{u.role}</span>
+                    <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-bold ${roleColor[u.role]}`}>{u.role}</span>
                   </td>
                   <td className="px-3 py-2.5 text-ink2 text-xs truncate" title={u.biblioteca}>{u.biblioteca}</td>
                   <td className="px-3 py-2.5">

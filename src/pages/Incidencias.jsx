@@ -1,7 +1,11 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import { mockData, BIBLIOTECAS } from "../services/api";
-import { Badge, PrioridadBadge, PageHeader, Btn, Modal, Input, Select, EtiquetaBadge, TagInput, EmptyState } from "../components/UI";
+import { Badge, PrioridadBadge, PageHeader, Btn, Modal, Input, Select, EtiquetaBadge, TagInput, EmptyState, SkeletonIncidencia } from "../components/UI";
+import RoleGuard from "../components/RoleGuard";
 import { useAuth } from "../context/AuthContext";
+import { useForm, Controller } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
 
@@ -34,7 +38,7 @@ function parseImportCSV(text) {
     const cols = line.split(sep).map(c => c.replace(/^"|"$/g, "").trim());
     const obj = {}; headers.forEach((h, idx) => { obj[h] = cols[idx] || ""; });
     return {
-      id: Date.now() + i,
+      id: crypto.randomUUID(),
       titulo: obj.título || obj.titulo || obj.title || `Incidencia importada ${i + 1}`,
       estado: (obj.estado || "ABIERTA").toUpperCase(),
       prioridad: obj.prioridad ? obj.prioridad.toUpperCase() : null,
@@ -58,12 +62,22 @@ function SinClasificarBadge() {
   );
 }
 
+const incidenciaSchema = z.object({
+  titulo: z.string()
+    .min(5, "El título es muy breve. Por favor, sé un poco más descriptivo (mínimo 5 letras).")
+    .max(100, "El título es demasiado largo."),
+  descripcion: z.string()
+    .min(10, "Describe con algo más de detalle qué está pasando para poder ayudarte mejor (mínimo 10 caracteres)."),
+  categoria: z.string().min(1, "Debes seleccionar una categoría."),
+  equipoId: z.coerce.number().nullable().optional().or(z.literal("").transform(() => null)),
+  prioridad: z.string().nullable().optional().or(z.literal("").transform(() => null)),
+  biblioteca: z.string().min(1, "Necesitamos saber a qué biblioteca pertenece esta incidencia."),
+  etiquetas: z.array(z.string()).default([]),
+});
+
 export default function Incidencias({ navigate, plantillaActiva = null, onPlantillaUsada = null, filtrosIniciales = null }) {
   const { user } = useAuth();
-  const isAdmin   = user.role === "ADMIN";
-  const isTecnico = user.role === "TECNICO";
   const isUsuario = user.role === "USUARIO";
-  const canSetPriority = isAdmin || isTecnico;
 
   const { addToast } = useToast();
   const { inventario: equipos, incidencias: baseInc, crearIncidencia, importarIncidencias } = useData();
@@ -78,25 +92,34 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
   const [equipoFilterNombre, setEquipoFilterNombre] = useState("");
 
   const [showModal, setShowModal] = useState(false);
-  const [isSaving, setIsSaving]   = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState("");
   const [plantillaNombre, setPlantillaNombre] = useState("");
+  
+  // Skeleton / Loading Simulation
+  const [isLoading, setIsLoading] = useState(true);
 
-  const [nuevo, setNuevo] = useState({
-    titulo: "", categoria: "HARDWARE", prioridad: null, descripcion: "", equipoId: null, etiquetas: [],
-    biblioteca: isUsuario ? user.biblioteca : BIBLIOTECAS[0],
+  useEffect(() => {
+    setIsLoading(true);
+    const timer = setTimeout(() => setIsLoading(false), 600);
+    return () => clearTimeout(timer);
+  }, [search, estado, prioridad, categoria, biblioFilter, tagFilter, equipoFilterId]);
+
+  const { register, handleSubmit, control, reset, watch, formState: { errors, isSubmitting } } = useForm({
+    resolver: zodResolver(incidenciaSchema),
+    defaultValues: {
+      titulo: "", categoria: "HARDWARE", prioridad: "", descripcion: "", equipoId: "", etiquetas: [],
+      biblioteca: isUsuario ? user.biblioteca : BIBLIOTECAS[0],
+    },
+    mode: "onBlur"
   });
-  const [errors, setErrors] = useState({});
 
-  const validate = () => {
-    const e = {};
-    if (!nuevo.titulo.trim()) e.titulo = "El título es obligatorio";
-    else if (nuevo.titulo.length < 5) e.titulo = "Título muy corto (mín. 5 caract.)";
-    if (!nuevo.descripcion.trim()) e.descripcion = "Describe brevemente el problema";
-    if (!isUsuario && !nuevo.biblioteca) e.biblioteca = "Selecciona una sede";
-    setErrors(e);
-    return Object.keys(e).length === 0;
+  const bibliotecaWatch = watch("biblioteca");
+
+  const onCloseModal = () => {
+    setShowModal(false);
+    reset();
+    setPlantillaNombre("");
   };
 
   useEffect(() => {
@@ -107,17 +130,20 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
         setBiblio("TODAS");
         if (onPlantillaUsada) onPlantillaUsada();
       } else {
-        setNuevo(prev => ({
-          ...prev,
-          categoria:   plantillaActiva.categoria    || "HARDWARE",
-          titulo:      plantillaActiva.titulo       || "",
-          descripcion: plantillaActiva.descripcion  || "",
-        }));
+        reset({
+          titulo: plantillaActiva.titulo || "",
+          categoria: plantillaActiva.categoria || "HARDWARE",
+          descripcion: plantillaActiva.descripcion || "",
+          prioridad: "",
+          equipoId: "",
+          etiquetas: [],
+          biblioteca: isUsuario ? user.biblioteca : BIBLIOTECAS[0],
+        });
         setPlantillaNombre(plantillaActiva.plantillaNombre || "");
         setShowModal(true);
       }
     }
-  }, [plantillaActiva, onPlantillaUsada]);
+  }, [plantillaActiva, onPlantillaUsada, reset, isUsuario, user?.biblioteca]);
 
   const clearFilters = () => {
     setSearch(""); setEstado("TODOS"); setPrioridad("TODAS"); setCategoria("TODAS");
@@ -139,14 +165,11 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
     });
   }, [baseInc, search, estado, prioridad, categoria, biblioFilter, tagFilter, equipoFilterId]);
 
-  const handleSave = () => {
-    if (!validate()) return;
-    setIsSaving(true);
-    setErrors({});
-    setTimeout(async () => {
+  const onSubmit = async (data) => {
+    return new Promise((resolve) => setTimeout(async () => {
       const ticket = {
-        ...nuevo,
-        id: Date.now(),
+        ...data,
+        id: crypto.randomUUID(),
         creadoPor: user.nombre || user.username,
         creadoPorId: user.id || 1,
         fecha: new Date().toISOString().slice(0, 10),
@@ -154,13 +177,11 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
         asignado: null,
       };
       await crearIncidencia(ticket);
-      setShowModal(false);
-      setIsSaving(false);
+      onCloseModal();
       if (onPlantillaUsada) onPlantillaUsada();
-      setPlantillaNombre("");
-      setNuevo({ titulo: "", categoria: "HARDWARE", prioridad: null, descripcion: "", equipoId: null, etiquetas: [], biblioteca: isUsuario ? user.biblioteca : BIBLIOTECAS[0] });
       addToast("Incidencia creada correctamente", "success");
-    }, 600);
+      resolve();
+    }, 600));
   };
 
   const handleImport = (e) => {
@@ -203,13 +224,13 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
         subtitle="Seguimiento y resolución de reportes"
         actions={<>
           <input type="file" id="import-csv" accept=".csv" className="hidden" onChange={handleImport} />
-          {!isUsuario && (
+          <RoleGuard allowed={["ADMIN", "TECNICO"]}>
             <Btn variant="secondary" onClick={() => document.getElementById("import-csv").click()} loading={isImporting}>
               {isImporting ? "Importando..." : "Importar CSV"}
             </Btn>
-          )}
+          </RoleGuard>
           <Btn variant="secondary" onClick={() => exportCSV(filtered, addToast)}>Exportar</Btn>
-          <Btn onClick={() => setShowModal(true)}>+ Crear incidencia</Btn>
+          <Btn onClick={() => { reset(); setShowModal(true); }}>+ Crear incidencia</Btn>
         </>}
       />
 
@@ -226,12 +247,12 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
             onChange={e => setSearch(e.target.value)}
             className={`flex-1 min-w-48 ${selectCls}`}
           />
-          {!isUsuario && (
+          <RoleGuard allowed={["ADMIN", "TECNICO"]}>
             <select value={biblioFilter} onChange={e => setBiblio(e.target.value)} className={selectCls}>
               <option value="TODAS">Todas las bibliotecas</option>
               {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
             </select>
-          )}
+          </RoleGuard>
           <select value={estado} onChange={e => setEstado(e.target.value)} className={selectCls}>
             {ESTADOS.map(s => <option key={s}>{s}</option>)}
           </select>
@@ -271,9 +292,10 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
         )}
       </div>
 
-      <div className="bg-card border border-edge rounded-lg overflow-hidden">
-        <table className="w-full text-sm table-fixed">
-          <colgroup>
+      <div className="bg-card border border-edge rounded-lg overflow-hidden flex flex-col">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm table-fixed">
+            <colgroup>
             <col style={{ width: "5rem" }} />
             <col style={{ width: "auto" }} />
             <col style={{ width: "6rem" }} />
@@ -290,14 +312,16 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
             </tr>
           </thead>
           <tbody className="divide-y divide-edge">
-            {filtered.length === 0 && (
+            {isLoading ? (
+              Array.from({ length: 6 }).map((_, i) => <SkeletonIncidencia key={i} />)
+            ) : filtered.length === 0 ? (
               <tr>
                 <td colSpan={7}>
                   <EmptyState title="Sin incidencias" icon="📋" message="No se han encontrado reportes con los filtros seleccionados o la tabla está vacía." />
                 </td>
               </tr>
-            )}
-            {filtered.map(inc => (
+            ) : (
+              filtered.map(inc => (
               <tr
                 key={inc.id}
                 onClick={() => navigate("detalle", inc.id)}
@@ -328,77 +352,87 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
                 <td className="px-3 py-2.5"><Badge estado={inc.estado} /></td>
                 <td className="px-3 py-2.5 text-ink2 text-xs truncate">{inc.asignado || "—"}</td>
               </tr>
-            ))}
+            )))}
           </tbody>
         </table>
+        </div>
         <div className="px-4 py-3 border-t border-edge text-ink3 text-xs">
           {filtered.length} resultados · {baseInc.filter(i => i.estado === "ABIERTA").length} abiertas
         </div>
       </div>
 
       {showModal && (
-        <Modal title="Nueva incidencia" onClose={() => setShowModal(false)} wide>
-          <div className="space-y-4">
+        <Modal title="Nueva incidencia" onClose={onCloseModal} wide>
+          <form className="space-y-4" onSubmit={handleSubmit(onSubmit)}>
             {plantillaNombre && (
               <div className="bg-amber-50 border border-amber-200 dark:bg-amber-400/10 dark:border-amber-400/20 text-amber-700 dark:text-amber-500 p-3 rounded text-xs flex justify-between items-center">
                 <span>Plantilla activa: <strong>{plantillaNombre}</strong></span>
-                <button onClick={() => setPlantillaNombre("")} className="hover:opacity-70">✕</button>
+                <button type="button" onClick={() => setPlantillaNombre("")} className="hover:opacity-70">✕</button>
               </div>
             )}
             <Input
               label="TÍTULO"
-              value={nuevo.titulo}
-              onChange={e => { setNuevo(p => ({ ...p, titulo: e.target.value })); if (errors.titulo) setErrors(p => ({ ...p, titulo: null })); }}
-              placeholder="Qué sucede..."
+              placeholder="Ej: El sistema no arranca..."
               required
-              error={errors.titulo}
+              error={errors.titulo?.message}
+              {...register("titulo")}
             />
             <div>
-              <label className="block text-ink3 text-xs font-semibold tracking-wide uppercase mb-1.5">
-                DESCRIPCIÓN <span className="text-red-500">*</span>
+              <label className="block text-ink3 text-xs font-semibold tracking-wider uppercase mb-1.5">
+                DESCRIPCIÓN <span className="text-red-500" aria-label="requerido">*</span>
               </label>
               <textarea
-                value={nuevo.descripcion}
-                onChange={e => { setNuevo(p => ({ ...p, descripcion: e.target.value })); if (errors.descripcion) setErrors(p => ({ ...p, descripcion: null })); }}
-                className={`w-full bg-well border ${errors.descripcion ? "border-red-400 focus:border-red-500" : "border-edge2 focus:border-amber-500/60"} rounded px-3 py-2 text-ink text-sm focus:outline-none transition-all`}
+                className={`w-full bg-card border rounded-lg px-3 py-2.5 text-ink text-sm placeholder-ink3 focus:outline-none focus:ring-2 transition-all ${errors.descripcion ? "border-red-400 focus:ring-red-500/30" : "border-edge focus:border-amber-500 focus:ring-amber-500/20"}`}
                 rows={4}
-                placeholder="Detalles..."
+                placeholder="Por favor, da tantos detalles como puedas..."
+                {...register("descripcion")}
               />
-              {errors.descripcion && <p className="text-red-600 dark:text-red-400 text-xs font-medium mt-1">{errors.descripcion}</p>}
+              {errors.descripcion && <p role="alert" className="text-red-600 dark:text-red-400 text-xs font-medium mt-1 animate-in fade-in slide-in-from-top-1">{errors.descripcion.message}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Select label="CATEGORÍA" value={nuevo.categoria} onChange={e => setNuevo(p => ({ ...p, categoria: e.target.value }))}>
-                {CATEGORIAS.filter(c => c !== "TODAS").map(c => <option key={c}>{c}</option>)}
+              <Select label="CATEGORÍA" error={errors.categoria?.message} {...register("categoria")}>
+                {CATEGORIAS.filter(c => c !== "TODAS").map(c => <option key={c} value={c}>{c}</option>)}
               </Select>
-              {canSetPriority && (
-                <Select label="PRIORIDAD" value={nuevo.prioridad || ""} onChange={e => setNuevo(p => ({ ...p, prioridad: e.target.value || null }))}>
+              <Select label="EQUIPO AFECTADO" error={errors.equipoId?.message} {...register("equipoId")}>
+                <option value="">— Ninguno / General —</option>
+                {equipos.filter(eq => eq.biblioteca === bibliotecaWatch).map(eq => (
+                  <option key={eq.id} value={eq.id}>{eq.nombre}</option>
+                ))}
+              </Select>
+              <RoleGuard allowed={["ADMIN", "TECNICO"]}>
+                <Select label="PRIORIDAD" error={errors.prioridad?.message} {...register("prioridad")}>
                   <option value="">— Sin clasificar</option>
-                  {PRIORIDADES.filter(p => p !== "TODAS" && p !== "SIN_CLASIFICAR").map(p => <option key={p}>{p}</option>)}
+                  {PRIORIDADES.filter(p => p !== "TODAS" && p !== "SIN_CLASIFICAR").map(p => <option key={p} value={p}>{p}</option>)}
                 </Select>
-              )}
+              </RoleGuard>
             </div>
-            {!isUsuario && (
+            <RoleGuard allowed={["ADMIN", "TECNICO"]}>
               <Select
                 label="BIBLIOTECA"
-                value={nuevo.biblioteca}
-                onChange={e => { setNuevo(p => ({ ...p, biblioteca: e.target.value })); if (errors.biblioteca) setErrors(p => ({ ...p, biblioteca: null })); }}
                 required
-                error={errors.biblioteca}
+                error={errors.biblioteca?.message}
+                {...register("biblioteca")}
               >
-                {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
+                {BIBLIOTECAS.map(b => <option key={b} value={b}>{b}</option>)}
               </Select>
-            )}
+            </RoleGuard>
             <div>
               <label className="block text-ink3 text-xs mb-1.5 font-medium">ETIQUETAS</label>
-              <TagInput value={nuevo.etiquetas || []} onChange={tags => setNuevo(p => ({ ...p, etiquetas: tags }))} suggestions={mockData.etiquetasGlobales} />
+              <Controller
+                name="etiquetas"
+                control={control}
+                render={({ field }) => (
+                  <TagInput value={field.value} onChange={field.onChange} suggestions={mockData.etiquetasGlobales} />
+                )}
+              />
             </div>
             <div className="flex gap-3 pt-2">
-              <Btn onClick={handleSave} disabled={!nuevo.titulo} loading={isSaving}>
-                {isSaving ? "Creando..." : "Crear incidencia"}
+              <Btn type="submit" loading={isSubmitting}>
+                {isSubmitting ? "Enviando..." : "Crear incidencia"}
               </Btn>
-              <Btn variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Btn>
+              <Btn type="button" variant="secondary" onClick={onCloseModal} disabled={isSubmitting}>Cancelar</Btn>
             </div>
-          </div>
+          </form>
         </Modal>
       )}
     </div>

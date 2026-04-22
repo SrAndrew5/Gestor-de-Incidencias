@@ -13,6 +13,7 @@ const NAV_ADMIN_ONLY = [
 ];
 const NAV_USUARIO = [
   { id: "incidencias", label: "Mis Incidencias", icon: "⚠" },
+  { id: "plantillas", label: "Plantillas", icon: "▤" },
 ];
 
 export default function Layout({ children, page, navigate }) {
