@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from "react";
-import { mockData, BIBLIOTECAS } from "../services/api";
+import { mockData } from "../services/api";
 import { Badge, PageHeader, Btn, Modal, Input, Select, EtiquetaBadge, TagInput, EstadoEquipo, EmptyState } from "../components/UI";
 import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
@@ -8,20 +8,22 @@ import { useToast } from "../context/ToastContext";
 const TIPOS   = ["TODOS", "ORDENADOR", "PORTÁTIL", "TABLET", "IMPRESORA", "PANTALLA", "RED", "PERIFÉRICO", "AV", "SERVIDOR"];
 const ESTADOS = ["TODOS", "OPERATIVO", "AVERIADO", "MANTENIMIENTO", "BAJA"];
 
-const EMPTY_FORM = {
+const buildEmptyForm = (defaultBibliotecaId) => ({
   codigoInventario: "", nombre: "", marca: "", modelo: "",
-  tipo: "ORDENADOR", biblioteca: BIBLIOTECAS[0], sala: "", puesto: "",
+  tipo: "ORDENADOR", bibliotecaId: defaultBibliotecaId, sala: "", puesto: "",
   estado: "OPERATIVO", serie: "", so: "", ram: "", cpu: "", almacenamiento: "", etiquetas: [],
-};
+});
 
-function parseExcelCSV(text) {
+function parseExcelCSV(text, bibliotecas) {
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   const sep = lines[0].includes(";") ? ";" : ",";
   const headers = lines[0].split(sep).map(h => h.replace(/"/g, "").trim().toLowerCase());
+  const fallbackBibliotecaId = bibliotecas[0]?.id ?? 1;
   return lines.slice(1).map((line, i) => {
     const cols = line.split(sep).map(c => c.replace(/^"|"$/g, "").trim());
     const obj = {}; headers.forEach((h, idx) => { obj[h] = cols[idx] || ""; });
+    const bibliotecaNombre = obj.biblioteca || obj.library || "";
     return {
       id: crypto.randomUUID(),
       codigoInventario: obj.codigoinventario || obj.codigo || obj.cod || "",
@@ -29,7 +31,7 @@ function parseExcelCSV(text) {
       marca:            obj.marca || obj.brand || "",
       modelo:           obj.modelo || obj.model || "",
       tipo:             (obj.tipo || obj.type || "ORDENADOR").toUpperCase(),
-      biblioteca:       obj.biblioteca || obj.library || BIBLIOTECAS[0],
+      bibliotecaId:     bibliotecas.find(b => b.nombre === bibliotecaNombre)?.id ?? fallbackBibliotecaId,
       sala:             obj.sala || obj.room || "",
       puesto:           obj.puesto || obj.desk || "",
       estado:           (obj.estado || obj.status || "OPERATIVO").toUpperCase(),
@@ -48,12 +50,19 @@ export default function Inventario({ navigate }) {
   const { user } = useAuth();
   const isAdmin = user.role === "ADMIN";
   const { addToast } = useToast();
-  const { inventario: items, guardarEquipo, importarEquipos } = useData();
+  const {
+    inventarioView: items,
+    bibliotecas,
+    guardarEquipo, importarEquipos,
+  } = useData();
+
+  const defaultBibliotecaId = bibliotecas[0]?.id ?? 1;
+  const EMPTY_FORM = useMemo(() => buildEmptyForm(defaultBibliotecaId), [defaultBibliotecaId]);
 
   const [search, setSearch]       = useState("");
   const [tipo, setTipo]           = useState("TODOS");
   const [estado, setEstado]       = useState("TODOS");
-  const [biblioFilter, setBiblio] = useState("TODAS");
+  const [biblioFilterId, setBiblioFilterId] = useState(null);
   const [tagFilter, setTagFilter] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem]   = useState(null);
@@ -70,7 +79,7 @@ export default function Inventario({ navigate }) {
     const e = {};
     if (!form.nombre.trim()) e.nombre = "El nombre del equipo es obligatorio";
     if (!form.codigoInventario.trim() && !form.serie.trim()) e.codigoInventario = "Debes indicar código o número de serie";
-    if (!form.biblioteca) e.biblioteca = "Asigna una sede al equipo";
+    if (!form.bibliotecaId) e.bibliotecaId = "Asigna una sede al equipo";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -82,13 +91,25 @@ export default function Inventario({ navigate }) {
     const matchSearch = !search || i.nombre.toLowerCase().includes(q) || i.codigoInventario.toLowerCase().includes(q) || (i.serie || "").toLowerCase().includes(q) || (i.marca || "").toLowerCase().includes(q) || (i.modelo || "").toLowerCase().includes(q);
     const matchTipo   = tipo === "TODOS" || i.tipo === tipo;
     const matchEstado = estado === "TODOS" || i.estado === estado;
-    const matchBiblio = biblioFilter === "TODAS" || i.biblioteca === biblioFilter;
+    const matchBiblio = !biblioFilterId || i.bibliotecaId === biblioFilterId;
     const matchTag    = !tagFilter || (i.etiquetas || []).includes(tagFilter);
     return matchSearch && matchTipo && matchEstado && matchBiblio && matchTag;
-  }), [items, search, tipo, estado, biblioFilter, tagFilter]);
+  }), [items, search, tipo, estado, biblioFilterId, tagFilter]);
 
-  const openEdit = (item) => { setEditItem(item); setForm({ ...item }); setErrors({}); setShowModal(true); };
-  const openNew  = () => { setEditItem(null); setForm({ ...EMPTY_FORM, biblioteca: user.biblioteca || BIBLIOTECAS[0] }); setErrors({}); setShowModal(true); };
+  const openEdit = (item) => {
+    // El form trabaja siempre con bibliotecaId. Las views hidratadas también
+    // contienen `biblioteca` (string) — se descarta al guardar.
+    setEditItem(item);
+    setForm({ ...item });
+    setErrors({});
+    setShowModal(true);
+  };
+  const openNew  = () => {
+    setEditItem(null);
+    setForm({ ...EMPTY_FORM, bibliotecaId: user.bibliotecaId ?? defaultBibliotecaId });
+    setErrors({});
+    setShowModal(true);
+  };
 
   const handleSave = () => {
     if (!validate()) return;
@@ -147,6 +168,49 @@ export default function Inventario({ navigate }) {
     e.target.value = "";
   };
 
+  const handleExportCSV = () => {
+    if (filtered.length === 0) {
+      addToast("No hay datos para exportar", "warning");
+      return;
+    }
+    
+    const headers = ["ID", "Código", "Nombre", "Marca", "Modelo", "Tipo", "Biblioteca", "Sala", "Puesto", "Estado", "Nº Serie", "S.O.", "RAM", "CPU", "Almacenamiento", "Última Revisión", "Etiquetas"];
+    
+    const rows = filtered.map(i => [
+      i.id,
+      i.codigoInventario || "",
+      i.nombre || "",
+      i.marca || "",
+      i.modelo || "",
+      i.tipo || "",
+      i.biblioteca || "",
+      i.sala || "",
+      i.puesto || "",
+      i.estado || "",
+      i.serie || "",
+      i.so || "",
+      i.ram || "",
+      i.cpu || "",
+      i.almacenamiento || "",
+      i.ultima_revision || "",
+      (i.etiquetas || []).join("|")
+    ]);
+    
+    const csvContent = [
+      headers.map(h => `"${h}"`).join(","),
+      ...rows.map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+    ].join("\n");
+    
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); 
+    a.href = url;
+    a.download = `inventario_${new Date().toISOString().slice(0, 10)}.csv`; 
+    a.click();
+    URL.revokeObjectURL(url);
+    addToast("Exportación de inventario completada", "success");
+  };
+
   const selectCls = "bg-well border border-edge2 rounded px-3 py-2 text-ink text-sm focus:outline-none focus:border-amber-500/60 transition-colors";
 
   return (
@@ -161,7 +225,7 @@ export default function Inventario({ navigate }) {
               {isImporting ? "Importando..." : "Importar CSV"}
             </Btn>
           )}
-          <Btn variant="secondary" onClick={() => addToast("Función de exportación PDF próximamente", "ghost")}>Informe PDF</Btn>
+          <Btn variant="secondary" onClick={handleExportCSV}>Exportar CSV</Btn>
           <Btn onClick={openNew}>+ Añadir equipo</Btn>
         </>}
       />
@@ -173,9 +237,9 @@ export default function Inventario({ navigate }) {
       <div className="bg-card border border-edge rounded-lg p-4 mb-6 space-y-3">
         <div className="flex flex-wrap gap-3">
           <input type="text" placeholder="Buscar por nombre, serie, código..." value={search} onChange={e => setSearch(e.target.value)} className={`flex-1 min-w-48 ${selectCls}`} />
-          <select value={biblioFilter} onChange={e => setBiblio(e.target.value)} className={selectCls}>
-            <option value="TODAS">Todas las bibliotecas</option>
-            {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
+          <select value={biblioFilterId ?? ""} onChange={e => setBiblioFilterId(e.target.value ? Number(e.target.value) : null)} className={selectCls}>
+            <option value="">Todas las bibliotecas</option>
+            {bibliotecas.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
           </select>
           <select value={tipo} onChange={e => setTipo(e.target.value)} className={selectCls}>
             {TIPOS.map(t => <option key={t}>{t}</option>)}
@@ -193,8 +257,8 @@ export default function Inventario({ navigate }) {
               <EtiquetaBadge tag={tag} />
             </button>
           ))}
-          {(search || tipo !== "TODOS" || estado !== "TODOS" || biblioFilter !== "TODAS" || tagFilter) && (
-            <button onClick={() => { setSearch(""); setTipo("TODOS"); setEstado("TODOS"); setBiblio("TODAS"); setTagFilter(""); }} className="text-amber-600 dark:text-amber-400/60 hover:text-amber-500 text-xs ml-auto transition-colors">
+          {(search || tipo !== "TODOS" || estado !== "TODOS" || biblioFilterId !== null || tagFilter) && (
+            <button onClick={() => { setSearch(""); setTipo("TODOS"); setEstado("TODOS"); setBiblioFilterId(null); setTagFilter(""); }} className="text-amber-600 dark:text-amber-400/60 hover:text-amber-500 text-xs ml-auto transition-colors">
               Limpiar filtros ✕
             </button>
           )}
@@ -299,8 +363,8 @@ export default function Inventario({ navigate }) {
               <Select label="TIPO" value={form.tipo} onChange={e => setForm(p => ({ ...p, tipo: e.target.value }))}>
                 {TIPOS.filter(t => t !== "TODOS").map(t => <option key={t}>{t}</option>)}
               </Select>
-              <Select label="BIBLIOTECA" value={form.biblioteca} onChange={e => { setForm(p => ({ ...p, biblioteca: e.target.value })); if (errors.biblioteca) setErrors(p => ({ ...p, biblioteca: null })); }} required error={errors.biblioteca}>
-                {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
+              <Select label="BIBLIOTECA" value={form.bibliotecaId || ""} onChange={e => { setForm(p => ({ ...p, bibliotecaId: Number(e.target.value) })); if (errors.bibliotecaId) setErrors(p => ({ ...p, bibliotecaId: null })); }} required error={errors.bibliotecaId}>
+                {bibliotecas.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -322,7 +386,7 @@ export default function Inventario({ navigate }) {
               <TagInput value={form.etiquetas} onChange={tags => setForm(p => ({ ...p, etiquetas: tags }))} suggestions={mockData.etiquetasGlobales} />
             </div>
             <div className="flex gap-3 pt-3 border-t border-edge">
-              <Btn onClick={handleSave} disabled={!form.nombre || !form.biblioteca} loading={isSaving}>
+              <Btn onClick={handleSave} disabled={!form.nombre || !form.bibliotecaId} loading={isSaving}>
                 {editItem ? (isSaving ? "Guardando..." : "Guardar cambios") : (isSaving ? "Procesando..." : "Registrar equipo")}
               </Btn>
               <Btn variant="secondary" onClick={() => setShowModal(false)}>Cancelar</Btn>

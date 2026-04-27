@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useEffect } from "react";
-import { mockData, BIBLIOTECAS } from "../services/api";
+import { mockData } from "../services/api";
 import { Badge, PrioridadBadge, PageHeader, Btn, Modal, Input, Select, EtiquetaBadge, TagInput, EmptyState, SkeletonIncidencia } from "../components/UI";
 import RoleGuard from "../components/RoleGuard";
 import { useAuth } from "../context/AuthContext";
@@ -8,10 +8,10 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
+import { procesarTriggers } from "../utils/businessRules";
 
-const ESTADOS    = ["TODOS", "ABIERTA", "EN_PROGRESO", "RESUELTA", "CERRADA"];
+const ESTADOS    = ["TODOS", "ABIERTA", "EN_PROGRESO", "PENDIENTE_TERCEROS", "RESUELTA", "CERRADA", "REABIERTA"];
 const PRIORIDADES = ["TODAS", "SIN_CLASIFICAR", "CRITICA", "ALTA", "MEDIA", "BAJA"];
-const CATEGORIAS  = ["TODAS", "HARDWARE", "SOFTWARE", "RED", "AV", "SEGURIDAD"];
 
 function exportCSV(data, addToast) {
   const headers = ["ID", "Título", "Estado", "Prioridad", "Categoría", "Asignado", "Fecha", "Biblioteca", "CreadoPor", "Etiquetas"];
@@ -29,7 +29,8 @@ function exportCSV(data, addToast) {
   if (addToast) addToast("Exportación de incidencias completada", "success");
 }
 
-function parseImportCSV(text) {
+function parseImportCSV(text, ctx) {
+  const { bibliotecas, categoriasByCodigo } = ctx;
   const lines = text.trim().split(/\r?\n/);
   if (lines.length < 2) return [];
   const sep = lines[0].includes(";") ? ";" : ",";
@@ -37,19 +38,21 @@ function parseImportCSV(text) {
   return lines.slice(1).map((line, i) => {
     const cols = line.split(sep).map(c => c.replace(/^"|"$/g, "").trim());
     const obj = {}; headers.forEach((h, idx) => { obj[h] = cols[idx] || ""; });
+    const categoriaCodigo = (obj.categoría || obj.categoria || "HARDWARE").toUpperCase();
+    const bibliotecaNombre = obj.biblioteca || "";
     return {
       id: crypto.randomUUID(),
       titulo: obj.título || obj.titulo || obj.title || `Incidencia importada ${i + 1}`,
       estado: (obj.estado || "ABIERTA").toUpperCase(),
       prioridad: obj.prioridad ? obj.prioridad.toUpperCase() : null,
-      categoria: (obj.categoría || obj.categoria || "HARDWARE").toUpperCase(),
-      asignado: obj.asignado || null,
+      categoriaId: categoriasByCodigo[categoriaCodigo]?.id ?? 1,
+      asignadoId: null,
       fecha: obj.fecha || new Date().toISOString().slice(0, 10),
-      biblioteca: obj.biblioteca || BIBLIOTECAS[0],
-      creadoPor: obj.creadopor || obj["creado por"] || "Importado",
+      bibliotecaId: bibliotecas.find(b => b.nombre === bibliotecaNombre)?.id ?? bibliotecas[0]?.id ?? 1,
       creadoPorId: 0,
       equipoId: null,
       etiquetas: obj.etiquetas ? obj.etiquetas.split("|") : [],
+      descripcion: obj.descripcion || "",
     };
   });
 }
@@ -68,10 +71,11 @@ const incidenciaSchema = z.object({
     .max(100, "El título es demasiado largo."),
   descripcion: z.string()
     .min(10, "Describe con algo más de detalle qué está pasando para poder ayudarte mejor (mínimo 10 caracteres)."),
-  categoria: z.string().min(1, "Debes seleccionar una categoría."),
-  equipoId: z.coerce.number().nullable().optional().or(z.literal("").transform(() => null)),
-  prioridad: z.string().nullable().optional().or(z.literal("").transform(() => null)),
-  biblioteca: z.string().min(1, "Necesitamos saber a qué biblioteca pertenece esta incidencia."),
+  categoriaId: z.coerce.number().int().positive("Debes seleccionar una categoría."),
+  equipoId: z.coerce.number().int().nullable().optional().or(z.literal("").transform(() => null)),
+  urgencia: z.string().min(1, "Selecciona una urgencia"),
+  impacto: z.string().min(1, "Selecciona un impacto"),
+  bibliotecaId: z.coerce.number().int().positive("Necesitamos saber a qué biblioteca pertenece esta incidencia."),
   etiquetas: z.array(z.string()).default([]),
 });
 
@@ -80,13 +84,19 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
   const isUsuario = user.role === "USUARIO";
 
   const { addToast } = useToast();
-  const { inventario: equipos, incidencias: baseInc, crearIncidencia, importarIncidencias } = useData();
+  const {
+    inventarioView: equipos,
+    incidenciasView: baseInc,
+    bibliotecas, categorias, categoriasByCodigo,
+    crearIncidencia, importarIncidencias,
+  } = useData();
 
   const [search, setSearch]       = useState(filtrosIniciales?.search || "");
   const [estado, setEstado]       = useState("TODOS");
   const [prioridad, setPrioridad] = useState("TODAS");
-  const [categoria, setCategoria] = useState("TODAS");
-  const [biblioFilter, setBiblio] = useState(isUsuario ? user.biblioteca : "TODAS");
+  // categoriaFilterId / biblioFilterId: null = "Todas", number = id concreto
+  const [categoriaFilterId, setCategoriaFilterId] = useState(null);
+  const [biblioFilterId, setBiblioFilterId]   = useState(isUsuario ? (user.bibliotecaId ?? null) : null);
   const [tagFilter, setTagFilter] = useState("");
   const [equipoFilterId, setEquipoFilterId]       = useState(null);
   const [equipoFilterNombre, setEquipoFilterNombre] = useState("");
@@ -103,18 +113,21 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
     setIsLoading(true);
     const timer = setTimeout(() => setIsLoading(false), 600);
     return () => clearTimeout(timer);
-  }, [search, estado, prioridad, categoria, biblioFilter, tagFilter, equipoFilterId]);
+  }, [search, estado, prioridad, categoriaFilterId, biblioFilterId, tagFilter, equipoFilterId]);
+
+  const defaultBibliotecaId = bibliotecas[0]?.id ?? 1;
+  const defaultCategoriaId  = categorias[0]?.id ?? 1;
 
   const { register, handleSubmit, control, reset, watch, formState: { errors, isSubmitting } } = useForm({
     resolver: zodResolver(incidenciaSchema),
     defaultValues: {
-      titulo: "", categoria: "HARDWARE", prioridad: "", descripcion: "", equipoId: "", etiquetas: [],
-      biblioteca: isUsuario ? user.biblioteca : BIBLIOTECAS[0],
+      titulo: "", categoriaId: defaultCategoriaId, urgencia: "", impacto: "", descripcion: "", equipoId: "", etiquetas: [],
+      bibliotecaId: isUsuario ? (user.bibliotecaId ?? defaultBibliotecaId) : defaultBibliotecaId,
     },
     mode: "onBlur"
   });
 
-  const bibliotecaWatch = watch("biblioteca");
+  const bibliotecaIdWatch = Number(watch("bibliotecaId"));
 
   const onCloseModal = () => {
     setShowModal(false);
@@ -127,59 +140,70 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
       if (plantillaActiva._equipoId) {
         setEquipoFilterId(plantillaActiva._equipoId);
         setEquipoFilterNombre(plantillaActiva._equipoNombre || "Equipo");
-        setBiblio("TODAS");
+        setBiblioFilterId(null);
         if (onPlantillaUsada) onPlantillaUsada();
       } else {
+        const catId = plantillaActiva.categoriaId
+          ?? categoriasByCodigo[plantillaActiva.categoria]?.id
+          ?? defaultCategoriaId;
         reset({
           titulo: plantillaActiva.titulo || "",
-          categoria: plantillaActiva.categoria || "HARDWARE",
+          categoriaId: catId,
           descripcion: plantillaActiva.descripcion || "",
-          prioridad: "",
+          urgencia: "",
+          impacto: "",
           equipoId: "",
           etiquetas: [],
-          biblioteca: isUsuario ? user.biblioteca : BIBLIOTECAS[0],
+          bibliotecaId: isUsuario ? (user.bibliotecaId ?? defaultBibliotecaId) : defaultBibliotecaId,
         });
         setPlantillaNombre(plantillaActiva.plantillaNombre || "");
         setShowModal(true);
       }
     }
-  }, [plantillaActiva, onPlantillaUsada, reset, isUsuario, user?.biblioteca]);
+  }, [plantillaActiva, onPlantillaUsada, reset, isUsuario, user?.bibliotecaId, defaultBibliotecaId, defaultCategoriaId, categoriasByCodigo]);
 
   const clearFilters = () => {
-    setSearch(""); setEstado("TODOS"); setPrioridad("TODAS"); setCategoria("TODAS");
-    setBiblio(isUsuario ? user.biblioteca : "TODAS"); setTagFilter("");
+    setSearch(""); setEstado("TODOS"); setPrioridad("TODAS"); setCategoriaFilterId(null);
+    setBiblioFilterId(isUsuario ? (user.bibliotecaId ?? null) : null); setTagFilter("");
     setEquipoFilterId(null); setEquipoFilterNombre("");
   };
 
   const filtered = useMemo(() => {
     return baseInc.filter(i => {
       const q = search.toLowerCase();
-      const matchSearch  = !search || i.titulo.toLowerCase().includes(q) || (i.creadoPor || "").toLowerCase().includes(q) || i.biblioteca.toLowerCase().includes(q);
+      const matchSearch  = !search || i.titulo.toLowerCase().includes(q) || (i.creadoPor || "").toLowerCase().includes(q) || (i.biblioteca || "").toLowerCase().includes(q);
       const matchEstado  = estado === "TODOS" || i.estado === estado;
       const matchPrioridad = prioridad === "TODAS" || (prioridad === "SIN_CLASIFICAR" ? !i.prioridad : i.prioridad === prioridad);
-      const matchCate    = categoria === "TODAS" || i.categoria === categoria;
-      const matchBiblio  = biblioFilter === "TODAS" || i.biblioteca === biblioFilter;
+      const matchCate    = !categoriaFilterId || i.categoriaId === categoriaFilterId;
+      const matchBiblio  = !biblioFilterId || i.bibliotecaId === biblioFilterId;
       const matchTag     = !tagFilter || (i.etiquetas || []).includes(tagFilter);
       const matchEquipo  = !equipoFilterId || i.equipoId === equipoFilterId;
       return matchSearch && matchEstado && matchPrioridad && matchCate && matchBiblio && matchTag && matchEquipo;
     });
-  }, [baseInc, search, estado, prioridad, categoria, biblioFilter, tagFilter, equipoFilterId]);
+  }, [baseInc, search, estado, prioridad, categoriaFilterId, biblioFilterId, tagFilter, equipoFilterId]);
 
   const onSubmit = async (data) => {
     return new Promise((resolve) => setTimeout(async () => {
+      // El payload solo lleva FKs. El backend (o el hydrator) resuelve nombres.
       const ticket = {
         ...data,
+        categoriaId: Number(data.categoriaId),
+        bibliotecaId: Number(data.bibliotecaId),
+        equipoId: data.equipoId ? Number(data.equipoId) : null,
         id: crypto.randomUUID(),
-        creadoPor: user.nombre || user.username,
         creadoPorId: user.id || 1,
+        asignadoId: null,
         fecha: new Date().toISOString().slice(0, 10),
         estado: "ABIERTA",
-        asignado: null,
       };
-      await crearIncidencia(ticket);
+      const itemCreado = await crearIncidencia(ticket);
       onCloseModal();
       if (onPlantillaUsada) onPlantillaUsada();
       addToast("Incidencia creada correctamente", "success");
+      
+      // Simulador de Triggers del Backend
+      procesarTriggers("NUEVA_INCIDENCIA", itemCreado, addToast);
+      
       resolve();
     }, 600));
   };
@@ -193,7 +217,7 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
     reader.onload = (ev) => {
       setTimeout(async () => {
         try {
-          const parsed = parseImportCSV(ev.target.result);
+          const parsed = parseImportCSV(ev.target.result, { bibliotecas, categoriasByCodigo });
           if (parsed.length > 0) {
             await importarIncidencias(parsed);
             addToast(`${parsed.length} incidencias importadas`, "success");
@@ -211,7 +235,8 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
     e.target.value = "";
   };
 
-  const hasFilters = estado !== "TODOS" || prioridad !== "TODAS" || categoria !== "TODAS" || search || tagFilter || biblioFilter !== (isUsuario ? user.biblioteca : "TODAS");
+  const defaultBiblioFilter = isUsuario ? (user.bibliotecaId ?? null) : null;
+  const hasFilters = estado !== "TODOS" || prioridad !== "TODAS" || categoriaFilterId !== null || search || tagFilter || biblioFilterId !== defaultBiblioFilter;
   const sinClasificarCount = baseInc.filter(i => !i.prioridad).length;
   const allTags = [...new Set(baseInc.flatMap(i => i.etiquetas || []))];
 
@@ -248,9 +273,13 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
             className={`flex-1 min-w-48 ${selectCls}`}
           />
           <RoleGuard allowed={["ADMIN", "TECNICO"]}>
-            <select value={biblioFilter} onChange={e => setBiblio(e.target.value)} className={selectCls}>
-              <option value="TODAS">Todas las bibliotecas</option>
-              {BIBLIOTECAS.map(b => <option key={b}>{b}</option>)}
+            <select
+              value={biblioFilterId ?? ""}
+              onChange={e => setBiblioFilterId(e.target.value ? Number(e.target.value) : null)}
+              className={selectCls}
+            >
+              <option value="">Todas las bibliotecas</option>
+              {bibliotecas.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
             </select>
           </RoleGuard>
           <select value={estado} onChange={e => setEstado(e.target.value)} className={selectCls}>
@@ -263,8 +292,13 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
               </option>
             ))}
           </select>
-          <select value={categoria} onChange={e => setCategoria(e.target.value)} className={selectCls}>
-            {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
+          <select
+            value={categoriaFilterId ?? ""}
+            onChange={e => setCategoriaFilterId(e.target.value ? Number(e.target.value) : null)}
+            className={selectCls}
+          >
+            <option value="">TODAS</option>
+            {categorias.map(c => <option key={c.id} value={c.id}>{c.codigo}</option>)}
           </select>
         </div>
 
@@ -284,7 +318,12 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
           <div className="flex flex-wrap items-center gap-2 p-3 bg-well border border-edge rounded-lg">
             <span className="text-ink3 text-xs">Filtros activos:</span>
             {equipoFilterId && <span className="bg-amber-200 text-amber-800 dark:bg-amber-400/10 dark:text-amber-400 text-xs px-2 py-0.5 rounded border border-amber-300 dark:border-amber-400/20">Equipo: {equipoFilterNombre}</span>}
-            {[estado !== "TODOS" && estado, prioridad !== "TODAS" && prioridad, categoria !== "TODAS" && categoria, tagFilter && `#${tagFilter}`].filter(Boolean).map(f => (
+            {[
+              estado !== "TODOS" && estado,
+              prioridad !== "TODAS" && prioridad,
+              categoriaFilterId && categorias.find(c => c.id === categoriaFilterId)?.codigo,
+              tagFilter && `#${tagFilter}`,
+            ].filter(Boolean).map(f => (
               <span key={f} className="bg-amber-200 text-amber-800 dark:bg-amber-400/10 dark:text-amber-400 text-xs px-2 py-0.5 rounded border border-amber-300 dark:border-amber-400/20">{f}</span>
             ))}
             <button onClick={clearFilters} className="text-ink3 hover:text-ink2 text-xs ml-auto transition-colors">Limpiar ✕</button>
@@ -390,30 +429,40 @@ export default function Incidencias({ navigate, plantillaActiva = null, onPlanti
               {errors.descripcion && <p role="alert" className="text-red-600 dark:text-red-400 text-xs font-medium mt-1 animate-in fade-in slide-in-from-top-1">{errors.descripcion.message}</p>}
             </div>
             <div className="grid grid-cols-2 gap-4">
-              <Select label="CATEGORÍA" error={errors.categoria?.message} {...register("categoria")}>
-                {CATEGORIAS.filter(c => c !== "TODAS").map(c => <option key={c} value={c}>{c}</option>)}
+              <Select label="CATEGORÍA" error={errors.categoriaId?.message} {...register("categoriaId")}>
+                {categorias.map(c => <option key={c.id} value={c.id}>{c.codigo}</option>)}
               </Select>
               <Select label="EQUIPO AFECTADO" error={errors.equipoId?.message} {...register("equipoId")}>
                 <option value="">— Ninguno / General —</option>
-                {equipos.filter(eq => eq.biblioteca === bibliotecaWatch).map(eq => (
+                {equipos.filter(eq => eq.bibliotecaId === bibliotecaIdWatch).map(eq => (
                   <option key={eq.id} value={eq.id}>{eq.nombre}</option>
                 ))}
               </Select>
               <RoleGuard allowed={["ADMIN", "TECNICO"]}>
-                <Select label="PRIORIDAD" error={errors.prioridad?.message} {...register("prioridad")}>
-                  <option value="">— Sin clasificar</option>
-                  {PRIORIDADES.filter(p => p !== "TODAS" && p !== "SIN_CLASIFICAR").map(p => <option key={p} value={p}>{p}</option>)}
-                </Select>
+                <div className="col-span-2 grid grid-cols-2 gap-4">
+                  <Select label="URGENCIA" required error={errors.urgencia?.message} {...register("urgencia")}>
+                    <option value="">— Seleccionar</option>
+                    <option value="ALTA">Alta (Afecta sistema crítico)</option>
+                    <option value="MEDIA">Media (Afecta tarea principal)</option>
+                    <option value="BAJA">Baja (Puede esperar)</option>
+                  </Select>
+                  <Select label="IMPACTO" required error={errors.impacto?.message} {...register("impacto")}>
+                    <option value="">— Seleccionar</option>
+                    <option value="ALTA">Alto (Toda la biblioteca)</option>
+                    <option value="MEDIA">Medio (Un grupo/sala)</option>
+                    <option value="BAJA">Bajo (Un usuario/equipo)</option>
+                  </Select>
+                </div>
               </RoleGuard>
             </div>
             <RoleGuard allowed={["ADMIN", "TECNICO"]}>
               <Select
                 label="BIBLIOTECA"
                 required
-                error={errors.biblioteca?.message}
-                {...register("biblioteca")}
+                error={errors.bibliotecaId?.message}
+                {...register("bibliotecaId")}
               >
-                {BIBLIOTECAS.map(b => <option key={b} value={b}>{b}</option>)}
+                {bibliotecas.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
               </Select>
             </RoleGuard>
             <div>

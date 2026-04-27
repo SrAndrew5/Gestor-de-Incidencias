@@ -5,7 +5,8 @@ import RoleGuard from "../components/RoleGuard";
 import { useAuth } from "../context/AuthContext";
 import { useData } from "../context/DataContext";
 import { useToast } from "../context/ToastContext";
-import { Paperclip, Image as ImageIcon, FileText, Download } from "lucide-react";
+import { Paperclip, Image as ImageIcon, FileText, Download, Clock } from "lucide-react";
+import { calcularSLA, validarCierre, procesarTriggers } from "../utils/businessRules";
 
 const tipoIcono = {
   CREACION:   { icon: "◎", color: "text-sky-600 dark:text-sky-400" },
@@ -16,21 +17,27 @@ const tipoIcono = {
 };
 
 const PRIORIDADES    = ["BAJA", "MEDIA", "ALTA", "CRITICA"];
-const ESTADOS_FLOW   = ["ABIERTA", "EN_PROGRESO", "RESUELTA", "CERRADA"];
+const ESTADOS_FLOW   = ["ABIERTA", "EN_PROGRESO", "PENDIENTE_TERCEROS", "RESUELTA", "CERRADA", "REABIERTA"];
 
 export default function DetalleTicket({ id, navigate }) {
   const { user } = useAuth();
   const isUsuario   = user.role === "USUARIO";
 
   const { addToast } = useToast();
-  const { incidencias, actualizarIncidencia, borrarIncidencia, inventario, usuarios, historialMap, addHistorialEntry } = useData();
-  const tecnicos = usuarios.filter(u => u.role === "TECNICO");
-  const inc = incidencias.find(i => i.id === id) || incidencias[0];
+  const {
+    incidenciasView, actualizarIncidencia, borrarIncidencia,
+    usuariosView, historialMap, addHistorialEntry, hydrateHistorialEntry,
+    getUsuarioNombre,
+  } = useData();
+  const tecnicos = usuariosView.filter(u => u.role === "TECNICO");
+  const inc = incidenciasView.find(i => i.id === id) || incidenciasView[0];
   const isCerrada = inc.estado === "CERRADA";
-  const equipoRelacionado = inc.equipoId ? inventario.find(e => parseInt(e.id) === parseInt(inc.equipoId)) : null;
+  // _equipo viene pre-resuelto por el hydrator en DataContext
+  const equipoRelacionado = inc._equipo;
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const historial  = historialMap[inc.id] || [];
+  const historialCrudo  = historialMap[inc.id] || [];
+  const historial = historialCrudo.map(hydrateHistorialEntry);
   const [comentario, setComentario] = useState("");
   const fileInputRef = useRef(null);
   
@@ -43,17 +50,21 @@ export default function DetalleTicket({ id, navigate }) {
 
   const estado = inc.estado;
   const prioridad = inc.prioridad || null;
-  const asignado = inc.asignado || "";
+  // FK (raw) y string derivado (hydrated) — usa cada uno según necesidad
+  const asignadoId = inc.asignadoId ?? null;
+  const asignadoNombre = inc.asignado || "";
   const etiquetas = inc.etiquetas || [];
   const adjuntos = inc.adjuntos || [];
 
   const sinClasificar = !prioridad;
+  
+  const slaInfo = calcularSLA(inc);
 
   const addToHistorial = (tipo, texto) => {
     const entry = {
       id: crypto.randomUUID(), tipo, texto,
       fecha: new Date().toLocaleString("es-ES", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }).replace(",", ""),
-      autor: user.nombre || user.username,
+      autorId: user.id,
     };
     addHistorialEntry(inc.id, entry);
   };
@@ -76,9 +87,17 @@ export default function DetalleTicket({ id, navigate }) {
   };
 
   const cambiarEstado = (nuevoEstado) => {
+    try {
+      validarCierre(nuevoEstado, historial);
+    } catch (err) {
+      addToast(err.message, "error");
+      return;
+    }
+    
     actualizarIncidencia(inc.id, { estado: nuevoEstado });
     addToHistorial("ESTADO", `Estado cambiado a ${nuevoEstado.replace("_", " ")}`);
     addToast(`Estado actualizado a ${nuevoEstado.replace("_", " ")}`);
+    procesarTriggers("CAMBIO_ESTADO", { ...inc, estado: nuevoEstado }, addToast);
   };
 
   const asignarPrioridad = (p) => {
@@ -96,7 +115,7 @@ export default function DetalleTicket({ id, navigate }) {
       `"Estado","${estado}"\n` +
       `"Prioridad","${prioridad || "SIN CLASIFICAR"}"\n` +
       `"Categoría","${inc.categoria}"\n` +
-      `"Asignado","${asignado || "—"}"\n` +
+      `"Asignado","${asignadoNombre || "—"}"\n` +
       `"Biblioteca","${inc.biblioteca}"\n` +
       `"Autor","${inc.creadoPor}"\n` +
       `"Fecha","${inc.fecha}"\n` +
@@ -188,6 +207,19 @@ export default function DetalleTicket({ id, navigate }) {
               <span className="text-ink3">{inc.fecha}</span>
               <span className="text-edge2">·</span>
               <span className="text-ink3">por {inc.creadoPor}</span>
+              
+              {!isCerrada && inc.prioridad && (
+                <>
+                  <span className="text-edge2">·</span>
+                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium border ${
+                    slaInfo.status === "BREACHED" ? "bg-red-50 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800" :
+                    slaInfo.status === "WARNING" ? "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800" :
+                    "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800"
+                  }`}>
+                    <Clock size={12} /> {slaInfo.label}
+                  </span>
+                </>
+              )}
             </div>
             {etiquetas.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
@@ -358,8 +390,8 @@ export default function DetalleTicket({ id, navigate }) {
                 {ESTADOS_FLOW.map(s => (
                   <button
                     key={s}
-                    onClick={() => !isCerrada && cambiarEstado(s)}
-                    disabled={isCerrada && s !== "CERRADA"}
+                    onClick={() => (!isCerrada || s === "REABIERTA") && cambiarEstado(s)}
+                    disabled={isCerrada && s !== "CERRADA" && s !== "REABIERTA"}
                     className={`w-full text-left px-3 py-2.5 rounded text-sm transition-all border ${
                       estado === s
                         ? "bg-amber-200 border-amber-400 text-amber-800 font-medium dark:bg-amber-400/10 dark:border-amber-400/40 dark:text-amber-400"
@@ -389,18 +421,20 @@ export default function DetalleTicket({ id, navigate }) {
               <div className="bg-card border border-edge rounded-xl p-5">
                 <div className="text-ink3 text-xs tracking-wide mb-3 font-semibold">ASIGNAR TÉCNICO</div>
                 <select
-                  value={asignado}
+                  value={asignadoId ?? ""}
                   onChange={e => {
-                    const nuevo = e.target.value;
-                    const anterior = inc.asignado;
-                    actualizarIncidencia(inc.id, { asignado: nuevo || null });
-                    addToHistorial("ASIGNACION", nuevo ? `Asignada a ${nuevo}${anterior ? ` (antes: ${anterior})` : ""}` : "Asignación eliminada");
-                    addToast(nuevo ? `Ticket asignado a ${nuevo}` : "Asignación eliminada");
+                    // Persistimos el ID (FK). El nombre se resuelve en el hydrator.
+                    const nuevoId = e.target.value ? Number(e.target.value) : null;
+                    const anteriorNombre = asignadoNombre;
+                    const nuevoNombre = nuevoId ? getUsuarioNombre(nuevoId) : null;
+                    actualizarIncidencia(inc.id, { asignadoId: nuevoId });
+                    addToHistorial("ASIGNACION", nuevoNombre ? `Asignada a ${nuevoNombre}${anteriorNombre ? ` (antes: ${anteriorNombre})` : ""}` : "Asignación eliminada");
+                    addToast(nuevoNombre ? `Ticket asignado a ${nuevoNombre}` : "Asignación eliminada");
                   }}
                   className="w-full bg-well border border-edge2 rounded px-3 py-2 text-ink text-sm focus:outline-none focus:border-amber-500/60"
                 >
                   <option value="">Sin asignar</option>
-                  {tecnicos.map(t => <option key={t.id} value={t.nombre}>{t.nombre}</option>)}
+                  {tecnicos.map(t => <option key={t.id} value={t.id}>{t.nombre}</option>)}
                 </select>
               </div>
             </RoleGuard>
@@ -415,7 +449,7 @@ export default function DetalleTicket({ id, navigate }) {
                 ...(equipoRelacionado ? [["Equipo AF.", equipoRelacionado.nombre]] : []),
                 ["Biblioteca", inc.biblioteca],
                 ["Categoría",  inc.categoria],
-                ["Asignado",   asignado || "—"],
+                ["Asignado",   asignadoNombre || "—"],
                 ["Creado por", inc.creadoPor],
                 ["Fecha",      inc.fecha],
               ].map(([k, v]) => (

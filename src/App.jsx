@@ -14,6 +14,8 @@ import DetalleTicket from "./pages/DetalleTicket";
 import Plantillas from "./pages/Plantillas";
 import GestionUsuarios from "./pages/GestionUsuarios";
 import Configuracion from "./pages/Configuracion";
+import Perfil from "./pages/Perfil";
+import HasPermission from "./components/HasPermission";
 
 function Router() {
   const { user } = useAuth();
@@ -35,13 +37,14 @@ function Router() {
 
   const renderPage = () => {
     switch (page) {
-      case "dashboard":      return <RoleGuard allowed={["ADMIN", "TECNICO"]} isRoute navigate={navigate}><Dashboard navigate={navigate} /></RoleGuard>;
-      case "inventario":     return <RoleGuard allowed={["ADMIN", "TECNICO"]} isRoute navigate={navigate}><Inventario navigate={navigate} /></RoleGuard>;
+      case "dashboard":      return <HasPermission permission="reports:view" isRoute navigate={navigate}><Dashboard navigate={navigate} /></HasPermission>;
+      case "inventario":     return <HasPermission permission="inventory:view" isRoute navigate={navigate}><Inventario navigate={navigate} /></HasPermission>;
       case "incidencias":    return <Incidencias navigate={navigate} plantillaActiva={plantillaActiva} onPlantillaUsada={() => { setPlantillaActiva(null); setFiltrosIniciales(null); }} filtrosIniciales={filtrosIniciales} />;
       case "detalle":        return <DetalleTicket id={ticketId} navigate={navigate} />;
-      case "plantillas":     return <Plantillas navigate={navigate} />;
-      case "configuracion":  return <Configuracion />;
-      case "usuarios":       return <RoleGuard allowed={["ADMIN"]} isRoute navigate={navigate}><GestionUsuarios navigate={navigate} /></RoleGuard>;
+      case "plantillas":     return <HasPermission permission="templates:manage" isRoute navigate={navigate}><Plantillas navigate={navigate} /></HasPermission>;
+      case "configuracion":  return <HasPermission permission="config:manage" isRoute navigate={navigate}><Configuracion /></HasPermission>;
+      case "usuarios":       return <HasPermission permission="users:manage" isRoute navigate={navigate}><GestionUsuarios navigate={navigate} /></HasPermission>;
+      case "perfil":         return <Perfil />;
       case "unauthorized":   return <Unauthorized navigate={navigate} />;
       default:               return <Incidencias navigate={navigate} />;
     }
